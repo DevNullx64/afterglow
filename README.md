@@ -5,298 +5,208 @@
 <h1 align="center">Afterglow</h1>
 
 <p align="center">
-  <b>Open-source tuning and monitoring for NVIDIA RTX GPUs.</b><br/>
-  Overclocking, undervolting, per-fan curves, FPS metrics, per-game profiles, and a built-in
-  stability lab — with no kernel drivers, no telemetry, no accounts, and no bundled bloat.
+  <b>Free, open-source overclocking, undervolting, fan control and monitoring for NVIDIA RTX graphics cards.</b><br/>
+  No kernel driver, no telemetry, no account.
 </p>
 
 <p align="center">
-  <img src="docs/media/dashboard.png" width="820" alt="Afterglow dashboard — live RTX 5090 telemetry during a burn test" />
-  <br/>
-  <sub>Real capture: an RTX 5090 riding through a built-in burn test — no synthetic data.</sub>
+  <a href="../../releases/latest"><b>Download for Windows</b></a> ·
+  <a href="docs/features.md">All features</a> ·
+  <a href="CHANGELOG.md">What's new</a>
+</p>
+
+<p align="center">
+  <img src="docs/media/dashboard.png" width="860" alt="The Afterglow dashboard on an RTX 5090" />
 </p>
 
 ---
 
-## Why Afterglow exists
+## What it does
 
-Every mainstream GPU tuning tool on Windows is closed source, and most ship a kernel driver
-with a CVE history (MSI Afterburner's `RTCore64.sys` is on the loldrivers blocklist and gets
-Afterburner banned by some anticheats; GPU-Z and vendor suites have had their own driver CVEs).
-Meanwhile the features gamers actually ask for — per-game profiles, honest Blackwell sensors,
-working undervolting on RTX 50 — go unbuilt for years.
+**Shows you what your card is doing.** Clock speeds, temperatures (including memory
+junction on RTX 50 cards, which most tools can't read), power draw, voltage, fan speeds and
+load, with ten minutes of history behind every number. When the card slows itself down,
+Afterglow tells you why in plain words ("the board hit its power limit") and how many
+degrees you have left before it starts throttling.
 
-Afterglow is a from-scratch, MIT-licensed answer:
-
-- **No kernel driver.** All hardware access goes through NVIDIA's own userland driver
-  interfaces (NVML — the documented library that ships in every driver — plus NVAPI).
-  Nothing to trip anticheat, nothing for malware to abuse.
-- **No injection.** FPS metrics come from Windows ETW present tracing (the Intel PresentMon
-  approach used by NVIDIA FrameView and CapFrameX), and the overlay is a composited window —
-  no DLLs are placed into your games.
-- **No telemetry, no login, no auto-updater phoning home.** Settings and profiles are plain
-  JSON on your disk. The only network code in the app is an **opt-in, off-by-default** update
-  check (one anonymous request to the GitHub Releases API at startup; it downloads nothing
-  and uploads nothing).
-- **Honest engineering.** Every tuning range is read from the driver; offsets, power limit,
-  and voltage boost are verified by reading the applied value back (the clock lock has no
-  driver getter, so Afterglow tracks it and says so); and anything a GPU generation doesn't
-  support says so instead of showing a fake number.
-- **Light when it's out of the way.** Resident in the tray, polling every second, it
-  measured ~131 MiB working set and about 0.3 % of one CPU core (driver time for the sensor
-  poll) on the RTX 5090 test machine; pages stop drawing the moment you can't see them. Method, numbers and their
-  limits: [docs/performance.md](docs/performance.md).
-
-## Features
-
-**Tuning**
-- Core & memory clock offsets with driver-reported legal ranges (RTX 5090: −1000…+1000 core,
-  −2000…+6000 memory), clamped and readback-verified
-- Power limit (watts and %), voltage boost where the hardware exposes it
-- **Clock-lock undervolting** — the documented-API method that works on RTX 50: cap the boost
-  clock while a positive offset shifts the V/F curve, hitting the same clock at lower voltage.
-  One-click presets in the undervolt wizard
-- **Per-point V/F curve editor** — direct edits to the driver's stored curve table, the
-  mechanism Afterburner's curve editor uses: per-point offsets, a one-click flatten undervolt
-  (raise the point at your target voltage, cap everything above it — and any lower point that
-  stock already runs faster than the target), and clear-all. Out-of-range offsets are refused,
-  never clamped, and every write — clear-all included — is checked by reading the table back
-  against what you asked for (when a readback isn't possible, the result says so instead of
-  claiming verification). Verified live on RTX 5090; expected on RTX 20/30/40 via the same
-  interfaces. Also `afterglow-cli vfpoints`
-- **Measured V/F curve** — the stored table says what the driver intends; the measured curve
-  shows what the GPU actually does under the power limit and thermals. A ~1-minute probe locks
-  each clock step under load and records the voltage the driver selects (plus continuous
-  passive recording while you game). Pick any
-  point on the measured curve and Afterglow computes the exact offset + lock that holds that
-  clock at that voltage
+**Overclocks and undervolts, safely.** Every slider is limited to the range the driver says
+is legal for your exact card, and every change is read back to confirm it actually took. To
+undervolt you can pick a preset, click a point on your card's measured voltage/frequency
+curve, or edit the driver's curve point by point.
 
 <p align="center">
-  <img src="docs/media/vfcurve.png" width="820" alt="Measured V/F curve of an RTX 5090" />
-  <br/>
-  <sub>An RTX 5090's real measured voltage/frequency curve — probed under load, what the GPU actually runs rather than what the driver's stored table intends.</sub>
+  <img src="docs/media/tuning.png" width="860" alt="The Tuning page" />
 </p>
-- Knob-by-knob apply results: every slider reports applied / clamped / failed individually
 
-**Fans**
-- Interactive curve editor (drag, double-click to add, right-click to remove points)
-- Fast-up / damped-down **hysteresis**, configurable **zero-RPM** window with restart
-  hysteresis, ramp limiting, hardware minimum-spin handling
-- Temperature source selection: GPU core, hot spot, or **memory junction**
-- True 0% (fan stop) through the modern per-fan driver interface, with per-fan RPM readouts
+**Runs your fans the way you want.** Draw a fan curve, pick which temperature drives it
+(core, hot spot or memory junction), let the fans stop below a temperature, and stop them
+hunting up and down with hysteresis.
 
-**Monitoring**
-- Clocks, temperatures (core + **memory junction on RTX 50** — the sensor most tools still
-  can't show there), board power (instantaneous via the driver's field API where exposed,
-  with the 1-second average alongside), core voltage, utilization, VRAM, per-fan duty & RPM,
-  PCIe link/throughput, perf state
-- **Plain-language throttle analysis**: instead of "PerfCap: SwPowerCap" you get "Power limit —
-  the board hit its power limit and lowered clocks", plus a live **"°C of headroom to
-  throttle"** readout straight from the driver
-- History graphs, session stats, HWiNFO-style CSV logging with rotation
-- Temperature alerts to the system tray
-
-**FPS & frametimes (no RivaTuner needed)**
-- Per-game FPS via ETW present tracing: average, P1/P0.1 percentiles **and** Gamers
-  Nexus-style 1%/0.1% lows — each metric labeled with its exact method
-- Frametime graph, present-mode display, automatic foreground-game detection (UWP included)
-- Click-through overlay for windowed/borderless/fullscreen-optimized games (the dominant
-  modes today; legacy exclusive-fullscreen is documented as not covered — no injection, by design)
-
-**Stability lab**
-- Built-in **burn test with bit-exact error detection**: a deterministic compute workload whose
-  full output is re-verified byte-for-byte through a rotating window (a 256 KiB slice every
-  ~2 s, covering the entire output each cycle) — a single flipped bit reports "unstable"
-  instead of hoping you notice artifacts. Driver resets (TDR) during load are caught and reported
-- **Stress patterns for the crashes other tools can't catch**: *Transition cycling* forces
-  P-state/memory-clock switches and re-verifies VRAM retention across every transition
-  (memory offsets that pass sustained burns routinely fail exactly there), and *Boost
-  excursions* rides the boost overshoot through the top clock bins — the bursty desktop
-  regime a power-limited burn never reaches
-- **Crash forensics**: an always-on flight recorder keeps recent telemetry on disk; after a
-  hard crash, the next launch correlates its final minutes with the Windows event log and
-  explains the failure in plain language ("hard reset 3 min after load ended with +2000 MHz
-  memory — matches transition instability"), instead of leaving you guessing
-- **Full-VRAM test**: fills as much of the card's memory as the OS safely allows (29 GiB on a
-  32 GiB card) with deterministic patterns, alternate rounds bit-inverted, verified on the GPU
-  itself — 87 GiB/s measured over a 2-minute run on RTX 5090 with driver 616.56 (throughput
-  varies by driver; the tool prints its own live rate) — catches memory-offset errors the
-  bandwidth burn can't
-- **Profile certification**: one click applies a saved profile and runs all four modes against
-  it in sequence; each pass is stamped into the profile, pinned to the exact offsets tested
-  (editing them invalidates the stamps), and passing all four marks it stable. A failure stops
-  the run and resets the GPU to driver defaults
-- **Guided stability stepper**: walks your core offset up step by step, burn-testing each,
-  backs off on the first failure and runs a confirmation pass — an open-method alternative
-  to closed OC scanners
+**Tells you whether it's actually stable.** A built-in burn test checks its answers bit for
+bit, so a single wrong bit is caught instead of waiting for a crash or for artifacts. There
+is a test for video memory, a stepper that walks your overclock up until it finds the edge,
+and a one-click certification that runs all four tests against a saved profile. If your PC
+does crash, the next launch explains what was happening in the seconds before.
 
 <p align="center">
-  <img src="https://github.com/minewefu/afterglow/releases/download/v1.0.1/burn-demo.gif" width="800" alt="Afterglow dashboard while the burn test ramps an RTX 5090 to ~550 W" />
-  <br/>
-  <sub>Real capture at ~10× speed: the burn test takes an RTX 5090 from idle to ~550 W sustained
-  while the dashboard watches — clocks, power, temperatures, and fan ramp all live.</sub>
+  <img src="docs/media/vfcurve.png" width="860" alt="The measured voltage/frequency curve of an RTX 5090" />
 </p>
 
-**Agent-native (AI integration)**
-- `afterglow-cli mcp` runs a **Model Context Protocol server**, so AI agents can monitor,
-  tune, and stability-test the GPU with typed tools — including `find_stable_offset`, the
-  guided stepper as a single autonomous call, plus the primitives (apply → stress → verify)
-  for building custom tuning loops on the error-checked burn test as ground truth
-- `--json` output on the read commands for shell-driving agents
-- Same safety envelope as the UI: agents can only apply driver-validated values, and every
-  result is reported truthfully — see [docs/agent-integration.md](docs/agent-integration.md)
+**Measures frame rates without injecting anything.** Average FPS, 1% and 0.1% lows and a
+frametime graph for whatever game is running, read from Windows' own present events (the
+same method as NVIDIA FrameView and CapFrameX). No RivaTuner needed. Every capture is saved
+with the settings you were running, so you can compare before and after.
 
-**Automation & safety**
-- **Per-game auto profiles**: apply a profile when a game launches, restore your previous
-  tuning when it exits (Afterburner has never had this)
-- **Per-game driver settings without opening NVIDIA Control Panel**: frame-rate cap, vsync,
-  and low latency per exe, written to the driver's own settings store — persistent, no
-  injection, active even when Afterglow isn't running (this replaces RTSS's frame limiter)
-- **Automation rules**: "memory junction ≥ 94 °C for 30 s → pin fans to 90%" — sustained-condition
-  watchdogs that apply a profile, fix the fans, or reset to defaults, with cooldown and alerts
-- **Session history**: every FPS capture is recorded with the offsets that were applied —
-  before/after comparisons per game, exportable as Markdown
-- Global hotkeys: overlay toggle, profile slots, and a **panic key** (Ctrl+Alt+R) that resets
-  everything to driver defaults
-- **TDR watchdog**: if Windows logs a display-driver reset while your tuning is applied,
-  Afterglow resets to defaults and tells you the overclock is suspect
-- Crash recovery: an unclean shutdown with tuning applied is detected at the next start
-- Unlimited named profiles as portable JSON; scriptable CLI (`afterglow-cli`) for automation
-- Tray mode, start-with-Windows, start-minimized
+**Remembers and automates.** Save settings as named profiles, have a profile switch on when
+a game starts (and switch back when it closes), set a game's frame cap or vsync in the
+NVIDIA driver, or write rules like "if the memory gets to 94 °C for 30 seconds, run the fans
+at 90 %". `Ctrl+Alt+R` puts everything back to stock from anywhere.
+
+**Works from scripts and AI agents too.** Everything is also in `afterglow-cli`, and
+`afterglow-cli mcp` lets an AI agent monitor, tune and stability-test the card through the
+Model Context Protocol, within the same limits as the app
+([docs/agent-integration.md](docs/agent-integration.md)).
+
+The full list, with how each feature works and where it was tested, is in
+[docs/features.md](docs/features.md).
+
+## Why another tuning tool?
+
+- **No kernel driver.** The popular tools install one, and those drivers have a history of
+  security holes: MSI Afterburner's `RTCore64.sys` has had several CVEs, one used by
+  ransomware to switch off antivirus, and it is listed on [loldrivers.io](https://www.loldrivers.io/drivers/e32bc3da-4db1-4858-a62c-6fbe4db6afbd/)
+  and has run into anti-cheat systems. Afterglow uses only the user-mode interfaces that
+  come with NVIDIA's own driver.
+- **Open source** under the MIT licence. You can read exactly what it does to your card.
+- **Honest.** If your card or driver doesn't support something, Afterglow says so instead of
+  showing a made-up number. Limits are listed below, and measurements come with their method.
+- **Light.** Sitting in the tray it uses about 130 MiB of memory and about 0.3 % of one CPU
+  core on the test machine, almost all of that being the driver answering the
+  once-a-second sensor read ([docs/performance.md](docs/performance.md)).
 
 ## How it compares
 
 | | Afterglow | MSI Afterburner | NVIDIA App | ASUS GPU Tweak III |
 |---|---|---|---|---|
-| Open source | **MIT** | No | No | No |
-| Kernel driver | **None** | RTCore64.sys (CVE history) | None | Yes (vendor) |
-| Manual core/mem offsets | Yes, driver-validated | Yes | **No** | Yes |
-| Undervolting on RTX 50 | **Measured V/F curve + pick-point undervolt** | Curve editor (driver-limited on 50-series) | No | V/F tuner |
-| Per-fan control incl. 0% | Yes (sync + single-fan) | Sync only (stock) | Fan target only | Yes |
-| Fan curve hysteresis both ways | **Yes** | Falling only | No | Yes |
-| Fan temp source (mem junction) | **Yes** | Core only | No | No |
-| Memory junction temp on RTX 50 | **Yes** | Plugin required | No | Unknown |
+| Open source | **Yes (MIT)** | No | No | No |
+| Kernel driver | **None** | RTCore64.sys | None | Yes |
+| Manual clock offsets | Yes, checked against the driver | Yes | **No** | Yes |
+| Undervolting on RTX 50 | **Measured curve + click-to-undervolt** | Curve editor | No | V/F tuner |
+| Fan curve driven by memory temperature | **Yes** | No | No | No |
+| Memory junction temperature on RTX 50 | **Yes** | Plugin | No | Unknown |
 | Throttle reasons in plain language | **Yes** | No | No | No |
-| FPS + 1%/0.1% lows without RTSS | **Yes (ETW)** | Needs RTSS | Overlay (1% only) | OSD |
-| Per-game auto profiles | **Yes, with revert** | No | No (auto-tune is global) | Profile Connect |
-| Built-in stress test w/ error check | **Yes** | No (Kombustor separate) | No | No (FurMark separate) |
-| Stability auto-stepper | **Yes, open method** | OC Scanner (closed, broken on 50) | Auto-tune (opaque) | OC Scanner |
-| TDR watchdog auto-reset | **Yes** | No | Debug mode (manual) | No |
-| Panic hotkey to defaults | **Yes** | No | No | No |
-| CLI / scripting | **Yes (full)** | Limited (`-Profile` switches) | No | No |
-| Telemetry / account | **None** | None | Telemetry, no opt-out | Vendor services |
+| FPS and 1%/0.1% lows without RTSS | **Yes** | Needs RTSS | 1% only | OSD |
+| Per-game profiles that switch back | **Yes** | No | No | Profile Connect |
+| Stress test that checks for errors | **Yes** | Separate app | No | Separate app |
+| Automatic stability search | **Yes, open method** | OC Scanner | Auto-tune | OC Scanner |
+| Reset after a driver crash | **Yes** | No | Manual | No |
+| Command line | **Full** | Profile switching | No | No |
+| Telemetry or account | **None** | None | Telemetry | Vendor services |
 
-*(Comparison researched against current releases in 2026 — the sourced feature matrices are
-in [docs/research/competitive-landscape.md](docs/research/competitive-landscape.md).
-Corrections welcome.)*
+Researched against current releases in 2026; sources are in
+[docs/research/competitive-landscape.md](docs/research/competitive-landscape.md).
+Corrections are welcome.
 
-## Honest limitations
+## Getting started
 
-- **NVIDIA GPUs only**, RTX 20-series and newer recommended; tuning requires driver **555+**
-  (the modern clock-offset API). Tested most heavily on RTX 50 (Blackwell).
-- **Hot spot on RTX 50** is blocked by NVIDIA in every public API. Tools that show it use
-  kernel-level register access; Afterglow deliberately doesn't ship a kernel driver, so on
-  Blackwell it shows the sensor as unavailable rather than pretending. (Memory junction *is*
-  available and shown.)
-- **Per-point curve control uses private NVAPI interfaces** (the same ones Afterburner uses).
-  Read + write verified on RTX 5090 / driver 616.56; other generations are probed live and the
-  editor only appears when the driver answers. The global core offset shares this table: a
-  core-offset write lands on every point at once, so applying one erases per-point edits
-  (measured on RTX 5090 / 616.56 — a per-point −50 became the global +100 the moment the
-  offset was applied). Clearing the point offsets left that global offset intact on this
-  driver — but rather than rely on that, Afterglow writes the core offset again after any
-  clear it performs, and only ever removes a curve for a profile that recorded a reading of
-  the table when it was saved. (Early releases claimed RTX 50 blocks these interfaces — that
-  was a broken struct layout in pre-1.0 development, fixed in 1.2.)
-- **Per-game driver settings for exes the driver doesn't already know.** Versions up to 1.2.0-beta.4
-  sent every driver-profile name truncated to its first character, so this path never worked
-  (it left a profile literally named "A"; delete it with NVIDIA Profile Inspector if you have
-  one). Names now arrive intact — verified by reading the store back — but creating a profile
-  for an unknown exe has not yet been re-tested on hardware since the fix. If the driver
-  refuses, Afterglow says so and suggests adding the game once in NVIDIA Control Panel. Games
-  the driver already knows (thousands are predefined) don't need a new profile.
-- The **overlay** doesn't render over legacy exclusive-fullscreen (no injection by design);
-  borderless/windowed/fullscreen-optimized — i.e., almost everything modern — works.
-- The **temperature-limit slider** isn't exposed on current Blackwell drivers through public
-  interfaces; use the power limit and fan curve instead (Afterglow says this in-app too).
-- **Multi-GPU support is new and not yet field-verified on a dual-NVIDIA system.** A title-bar
-  selector (shown when more than one NVIDIA GPU is present) points every page at one card;
-  stress/VRAM tests bind to the tuned card by PCI bus, profiles are stamped with the GPU they
-  were saved on (and refuse to apply elsewhere), and applied state, fan configuration, V/F
-  curves, and the flight recorder are all tracked per GPU, with automation rules watching
-  every card independently. The CLI takes `--gpu N`. The identity plumbing is verified on
-  single-GPU hardware; dual-GPU behavior still needs a tester with two cards
-  ([#1](../../issues/1)).
-- Writes need administrator rights (true for every tool in this category). Afterglow launches
-  with a UAC prompt; declining it leaves you in monitoring-only mode instead of exiting.
+1. **Install.** Download `Afterglow-x.y.z-setup.exe` from
+   [Releases](../../releases/latest) and run it. Or take the portable zip, unzip it anywhere
+   and run `Afterglow.exe` (keep the folder together). Windows 10 or 11, 64-bit, with NVIDIA
+   driver 555 or newer. Nothing else to install.
+2. **Accept the admin prompt.** Changing clocks, power and fans needs administrator rights,
+   as it does for every tool like this. If you say no, Afterglow still runs and shows
+   everything; it just can't change anything.
+3. **Try a gentle undervolt.** On the Tuning page, pick *Balanced* in the undervolt wizard
+   and press **Apply**. Your card should run nearly as fast on less power, which means cooler
+   and quieter.
+4. **Check it.** On the Stability page, run the burn test for a few minutes. If it reports
+   an error, back off; if it passes, run the other two patterns too before you trust it.
+5. **Keep it.** Save it as a profile, mark it stable, and choose it under
+   *Settings → Apply a profile at startup*. Only profiles marked stable ever apply
+   themselves, so an untested overclock can't load at boot.
 
-## Install
+Releases aren't code-signed yet, so Windows SmartScreen may warn the first time: choose
+*More info → Run anyway*. Each release lists SHA-256 checksums you can check the download
+against.
 
-**Requirements:** Windows 10/11 x64, NVIDIA driver 555 or newer.
+## Good to know
 
-- **Installer:** grab `Afterglow-x.y.z-setup.exe` from
-  [Releases](../../releases), run it (it can also register start-with-Windows).
-- **Portable:** unzip `Afterglow-x.y.z-portable.zip` anywhere (keep the folder together — the
-  app and `afterglow-cli.exe` share one runtime in it) and run `Afterglow.exe`.
+- **NVIDIA only**, RTX 20 series and newer recommended. Tested most on RTX 50 (an RTX 5090).
+- **No hot-spot temperature on RTX 50.** NVIDIA blocks it in every public interface; tools
+  that show it read hardware registers through a kernel driver, which Afterglow doesn't
+  have. Memory junction temperature does work and is shown.
+- **The per-point curve editor uses NVIDIA interfaces that aren't publicly documented**
+  (the same ones Afterburner's curve editor uses). It's verified on an RTX 5090 and only
+  appears when your driver answers. Applying a core offset rewrites the whole curve, so set
+  the offset first and shape the curve after.
+- **Per-game driver settings for games the driver doesn't know** create a small driver
+  profile for the game. Versions up to 1.2.0-beta.4 had a bug that left a profile named
+  "A" behind instead; `afterglow-cli drs --cleanup` finds it and, with `--apply` from an
+  admin terminal, removes it.
+- **The overlay can't draw over old-style exclusive fullscreen**, because nothing is
+  injected into the game. Borderless, windowed and modern "fullscreen optimized" games work.
+- **There's no temperature-limit slider** on current RTX 50 drivers through public
+  interfaces; use the power limit and the fan curve instead.
+- **More than one NVIDIA card** is supported (a selector appears in the title bar), but it
+  hasn't been tested on a real two-card system yet ([#1](../../issues/1)).
 
-No .NET install is needed — builds are self-contained. Because releases are not (yet)
-code-signed, Windows SmartScreen may warn on first launch — "More info → Run anyway";
-you can verify the download against the SHA-256 checksums published with each release.
+## Command line
 
-### CLI
+`afterglow-cli` comes with the app. Changes need an admin terminal.
 
 ```text
-afterglow-cli selftest        probe the GPU: per-capability support report
-afterglow-cli monitor         live sensors (--csv file to log)
-afterglow-cli caps | get      driver-reported ranges / currently applied values
-afterglow-cli set             --core-offset 150 --mem-offset 500 --power-limit 500
-                              --lock-clock 2650 --fan 60 ... (admin)
-afterglow-cli reset           restore all driver defaults
-afterglow-cli fps             capture FPS/frametimes for all presenting apps
-afterglow-cli stress          burn test (--pattern sustained|transitions|excursions)
-afterglow-cli vram            full-capacity VRAM test with GPU-side verification
-afterglow-cli certify         run all four stability modes against a saved profile (admin)
-afterglow-cli drs             per-game driver settings (--exe game.exe --cap 120 --vsync off)
+afterglow-cli selftest          what this GPU and driver support
+afterglow-cli monitor           live sensors (--csv file to log them)
+afterglow-cli caps | get        legal ranges / what is applied now
+afterglow-cli set               --core-offset 150 --mem-offset 500 --power-limit 500
+                                --lock-clock 2650 --fan 60 ...
+afterglow-cli reset             back to driver defaults
+afterglow-cli fps               frame rates of everything presenting
+afterglow-cli stress            burn test (--pattern sustained|transitions|excursions)
+afterglow-cli vram              video-memory test
+afterglow-cli certify           all four stability tests against a saved profile
+afterglow-cli drs               per-game driver settings (--exe game.exe --cap 120 --vsync off)
+afterglow-cli drs --cleanup     find the "A" profile left by 1.2.0-beta.4 and earlier (--apply removes it)
+afterglow-cli mcp               Model Context Protocol server for AI agents
 ```
+
+Run `afterglow-cli help` for everything else.
 
 ## Building from source
 
 ```bash
 git clone https://github.com/minewefu/afterglow
 cd afterglow
-dotnet build          # .NET 10 SDK required
+dotnet build        # needs the .NET 10 SDK
 dotnet test
-dotnet run --project src/Afterglow.App -- --demo   # full UI with synthetic data, no GPU needed
+dotnet run --project src/Afterglow.App -- --demo
 ```
 
-`--demo` runs the entire UI on a synthetic GPU — useful for UI work on machines without
-NVIDIA hardware. `--screenshot out.png --page tuning` renders any page off-screen to a PNG
-(that's how the screenshots in this README are produced).
+`--demo` runs the whole app on a pretend GPU, so you can work on the interface without an
+NVIDIA card. `--data-dir <folder>` keeps all settings, profiles and logs in that folder
+instead of `%ProgramData%\Afterglow`, so a test build never touches your installed copy.
+The `tools` folder has the scripts that make the screenshots above
+([screenshots.ps1](tools/screenshots.ps1)), check the interface
+([ui-check.ps1](tools/ui-check.ps1)) and measure performance
+([measure-perf.ps1](tools/measure-perf.ps1)). Design rules: [docs/design.md](docs/design.md).
 
-`--data-dir <folder>` (app and CLI) keeps every piece of state — settings, profiles, logs,
-flight recordings, V/F curves — under that folder instead of `%ProgramData%\Afterglow`, so a
-development build or a test run never touches the installed copy; `--no-elevate` keeps a run
-monitoring-only. `tools/measure-perf.ps1` and `tools/measure-startup.ps1` use both to measure
-CPU, memory, allocation rate and startup reproducibly — see
-[docs/performance.md](docs/performance.md).
+## Safety
 
-## Safety model
+Afterglow only writes values the driver itself says are legal for your card, and checks
+each one by reading it back. Nothing it sets survives a reboot unless you choose a startup
+profile. If the driver crashes while you're tuned, Afterglow resets to stock; if the PC
+crashes, the next launch offers to. Overclocking is still overclocking: you own the risk,
+and an error in the stress test means back off.
 
-Afterglow only ever writes values the driver itself declares legal for your exact GPU, and
-verifies each write by reading it back. Nothing persists at the driver level across reboots
-unless you re-apply it; the TDR watchdog, crash recovery, and panic hotkey are there for the
-rest. Overclocking is still overclocking — you own the risk, and instability found by the
-stress test means back off.
-
-Details: [docs/research/driver-apis.md](docs/research/driver-apis.md) records exactly which
-driver interfaces are used and how each was verified on real hardware.
+Which driver interfaces are used, and how each was verified on real hardware:
+[docs/research/driver-apis.md](docs/research/driver-apis.md).
 
 ## Credits
 
-- Intel **PresentMon** (MIT) powers frame capture — bundled binary + license in
-  `ThirdParty/PresentMon`, hash pinned in [THIRD_PARTY.md](THIRD_PARTY.md).
-- **LibreHardwareMonitor** and **NvAPIWrapper** published the NVAPI interface knowledge this
-  project's interop layer was built from (no code copied; see provenance table).
-- **CapFrameX** and the Gamers Nexus methodology writings for frame-metric definitions.
+- Intel **PresentMon** (MIT) does the frame capture; the bundled binary, its licence and
+  its pinned hash are in `ThirdParty/PresentMon` and [THIRD_PARTY.md](THIRD_PARTY.md).
+- **LibreHardwareMonitor** and **NvAPIWrapper** published the NVAPI knowledge the interop
+  layer was built from (no code copied).
+- **CapFrameX** and Gamers Nexus for the frame-metric definitions.
 
 MIT licensed. Not affiliated with or endorsed by NVIDIA.

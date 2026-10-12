@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.5.0 — 2026-10-12
+
+The first stable release since 1.1.0: everything from the 1.2.0 betas, a performance
+and modernization pass, and a redesign of every page.
 
 ### Performance — measured, not estimated ([docs/performance.md](docs/performance.md))
 
@@ -49,8 +52,15 @@
   drivers reject creating profiles via NVAPI" — that claim is withdrawn. Names
   now arrive intact (verified read-only against the driver store: 7,984 full
   profile names, where the old code read 7,984 single letters). A profile named
-  "A" left by an earlier version is not removed automatically; delete it with
-  NVIDIA Profile Inspector if present
+  "A" left by an earlier version is not removed automatically:
+  `afterglow-cli drs --cleanup` finds it (a dry run that only reads) and
+  `--cleanup --apply`, elevated, deletes it. It deletes only a user-created
+  profile named exactly "A" whose applications all have one-letter names and
+  whose settings are all ones Afterglow writes, re-checked in the session that
+  deletes, and then reads the store back to confirm
+- `afterglow-cli drs --selftest` exercises the unknown-game path end to end:
+  creates a profile for a random, unknown exe, reads the values and the full
+  names back, and removes it again
 
 ### Fixed
 
@@ -130,6 +140,37 @@
   (F-33); schtasks/explorer are launched by full path from the elevated app
   (F-32); the "non-admin location" warning judges the exe the task actually
   launches
+
+### Design — every page reworked ([critique and method](docs/design.md))
+
+- Fixed: primary buttons labelled with plain text ("Apply", "Save profile",
+  "Add rule", "Apply mode") drew near-white text on orange, 2.0:1 contrast;
+  they now use the dark on-accent text like the rest (7.9:1). The same bug hid
+  the disabled state of most buttons, which looked clickable when they
+  weren't. Disabled buttons, sliders, switches, checkboxes and text boxes now
+  look disabled
+- Card explanations and footnotes were 2.9:1 against their card; now 4.8:1
+  (WCAG AA). Text follows the Windows 11 type ramp, nothing below 12 px, with
+  Segoe UI Variable's Text cut for UI copy and its Display cut for titles and
+  big numbers
+- Tuning: Apply and Reset sit in a bar pinned to the bottom of the page, so
+  they're visible at any window size, with an "Unapplied changes" marker while
+  the sliders differ from what the card is running
+- Settings is grouped like Windows Settings (General, Monitoring, Automation,
+  Overlay, About), one setting per row, with the keyboard shortcuts as keycaps
+- Fans: a segmented mode switch with one line explaining each mode, and the
+  curve options as aligned rows
+- Dashboard: tiles are keyboard-reachable buttons; with no game running the
+  FPS tile says so and opens the FPS page, instead of leaving a hole in the
+  grid; graph axes land on round numbers (1,000 / 1,500 / …) in a gutter,
+  where they used to be the padded extremes (e.g. 593.8 and 2.4) drawn over
+  the line
+- Empty states instead of empty boxes: the stepper and certification logs
+  appear once a run has something to show, the session history and profile
+  list say what will go there, and text boxes have example placeholders
+- Dark checkboxes, radio buttons, progress bars and combo boxes (whose arrow
+  no longer disappears under the text); one page width, 8 px cards and 4 px
+  controls (Windows 11 geometry), 32 px control height
 
 ### Changed
 
