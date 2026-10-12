@@ -81,8 +81,14 @@ public sealed class GpuManager : IDisposable
             }
         }
 
+        var devices = _nvml.GetDevices();
+
+        // Before any tuner reads its applied state: an unstamped legacy record
+        // only migrates when it can belong to exactly one card (F-59).
+        AppliedStateStore.DetectedGpuCount = devices.Count;
+
         var contexts = new List<GpuContext>();
-        foreach (var device in _nvml.GetDevices())
+        foreach (var device in devices)
         {
             NvapiGpu? pairedNvapi = null;
             uint? pciBus = null;

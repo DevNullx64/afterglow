@@ -30,6 +30,7 @@ public sealed class MultiGpuLegacyStateTests : IDisposable
     public void Dispose()
     {
         AppPaths.OverrideRoot = null;
+        AppliedStateStore.DetectedGpuCount = 0;
         try
         {
             Directory.Delete(_root, recursive: true);
@@ -46,6 +47,35 @@ public sealed class MultiGpuLegacyStateTests : IDisposable
             JsonSerializer.Serialize(new AppliedStateStore.AppliedState(
                 "Daily OC", DateTimeOffset.Now, AllKnobsSucceeded: true, CleanShutdown: true,
                 LockedCoreClockMHz: 2800, GpuUuid: UuidA)));
+
+    private static void WriteUnstampedLegacyRecord() =>
+        File.WriteAllText(
+            AppPaths.AppliedStateFile,
+            JsonSerializer.Serialize(new AppliedStateStore.AppliedState(
+                "Daily OC", DateTimeOffset.Now, AllKnobsSucceeded: true, CleanShutdown: false,
+                LockedCoreClockMHz: 2800)));
+
+    [Fact]
+    public void With_two_cards_an_unstamped_legacy_record_is_adopted_by_neither()
+    {
+        WriteUnstampedLegacyRecord();
+        AppliedStateStore.DetectedGpuCount = 2;
+
+        Assert.Null(AppliedStateStore.Load(UuidA));
+        Assert.Null(AppliedStateStore.Load(UuidB));
+
+        // Still visible to the crash scan: it was not a clean shutdown.
+        Assert.Contains(AppliedStateStore.LoadAll(), s => !s.CleanShutdown && s.LockedCoreClockMHz == 2800u);
+    }
+
+    [Fact]
+    public void With_one_card_an_unstamped_legacy_record_still_migrates()
+    {
+        WriteUnstampedLegacyRecord();
+        AppliedStateStore.DetectedGpuCount = 1;
+
+        Assert.Equal(2800u, AppliedStateStore.Load(UuidA)!.LockedCoreClockMHz);
+    }
 
     [Fact]
     public void Card_b_never_reads_a_legacy_record_stamped_for_card_a()

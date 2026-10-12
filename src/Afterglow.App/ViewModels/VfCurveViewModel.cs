@@ -435,6 +435,28 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
     /// load and records the voltage the driver selects. Restores the previous
     /// lock state when done.
     /// </summary>
+    /// <summary>
+    /// App exit: cancel a running probe and wait for it to put the pre-probe
+    /// lock state back. True when nothing was running or the restore landed;
+    /// false means the probe's exact clock pin may still be applied, so App
+    /// must not record a clean shutdown (same contract as the stepper, F-27).
+    /// </summary>
+    public bool StopForShutdown()
+    {
+        if (_probe is not { } probe)
+        {
+            return true;
+        }
+
+        // Settle (~2 s) and the stress load's teardown (bounded at 5 s) are the
+        // longest steps a cancel can wait behind.
+        bool finished = probe.CancelAndWait(TimeSpan.FromSeconds(10));
+        return finished && probe.LastRestoreSucceeded;
+    }
+
+    /// <summary>Starts a probe's cancellation without waiting (exit runs the waits afterwards, overlapped).</summary>
+    public void BeginShutdown() => _probe?.Cancel();
+
     [RelayCommand]
     private void ToggleProbe()
     {

@@ -130,7 +130,7 @@ public sealed class GpuTuner
 {
     private readonly NvmlDevice _nvml;
     private readonly NvapiGpu? _nvapi;
-    private readonly object _applyLock = new();
+    private readonly Lock _applyLock = new();
     private uint? _appliedLockMHz;
 
     public TuningCapabilities Capabilities { get; }
@@ -1031,7 +1031,7 @@ public static class AppliedStateStore
         string? GpuUuid = null);
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private static readonly object Lock = new();
+    private static readonly Lock Sync = new();
 
     public static void RecordPending(string profileName, string? gpuUuid = null)
     {
@@ -1085,7 +1085,7 @@ public static class AppliedStateStore
     /// <summary>App-level: marks every GPU's record (and the legacy file) as cleanly shut down.</summary>
     public static void MarkCleanShutdown()
     {
-        lock (Lock)
+        lock (Sync)
         {
             foreach (string path in AllFiles())
             {
@@ -1119,7 +1119,7 @@ public static class AppliedStateStore
     /// </summary>
     public static AppliedState? Load(string? gpuUuid = null)
     {
-        lock (Lock)
+        lock (Sync)
         {
             if (gpuUuid is not null && ReadFile(PathFor(gpuUuid)) is { } perGpu)
             {
@@ -1132,9 +1132,26 @@ public static class AppliedStateStore
                 return null; // another card's record: never adopted, never seeded from
             }
 
+            // An UNSTAMPED record says nothing about which card it was. On a
+            // one-card machine that is the single-GPU upgrade and migrates; with
+            // several cards it cannot be every card's, so none adopts it — each
+            // would otherwise inherit its tracked clock lock as a phantom lock.
+            // LoadAll still reports it, so an unclean one still raises the
+            // crash banner (F-59).
+            if (gpuUuid is not null && legacy is { GpuUuid: null } && DetectedGpuCount > 1)
+            {
+                return null;
+            }
+
             return legacy;
         }
     }
+
+    /// <summary>
+    /// NVIDIA GPUs in this process, set by GpuManager before any tuner reads
+    /// its state; 0 = unknown (treated like one card, the old behaviour).
+    /// </summary>
+    public static int DetectedGpuCount { get; set; }
 
     /// <summary>
     /// Every persisted record, for startup crash scanning — per-GPU files plus
@@ -1142,7 +1159,7 @@ public static class AppliedStateStore
     /// </summary>
     public static IReadOnlyList<AppliedState> LoadAll()
     {
-        lock (Lock)
+        lock (Sync)
         {
             var states = new List<AppliedState>();
             foreach (string path in PerGpuFiles())
@@ -1166,7 +1183,7 @@ public static class AppliedStateStore
     /// <summary>Removes the GPU's record — its own file and, if it owns it, the legacy file.</summary>
     public static void Clear(string? gpuUuid = null)
     {
-        lock (Lock)
+        lock (Sync)
         {
             try
             {
@@ -1254,7 +1271,7 @@ public static class AppliedStateStore
 
     private static void Mutate(string? gpuUuid, Func<AppliedState?, AppliedState?> mutate)
     {
-        lock (Lock)
+        lock (Sync)
         {
             try
             {

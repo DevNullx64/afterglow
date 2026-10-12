@@ -62,6 +62,25 @@ public sealed class VfCurveProbe
 
     public void Cancel() => _cancel = true;
 
+    /// <summary>
+    /// False when the last run ended without the driver accepting the restore of
+    /// the pre-probe lock state — the probe's exact clock pin may still be in
+    /// force. True before any run and after a restore the driver accepted.
+    /// </summary>
+    public bool LastRestoreSucceeded { get; private set; } = true;
+
+    /// <summary>
+    /// Cancels a running sweep and waits for its unwind (load teardown + lock
+    /// restore). False when the thread was still running at the deadline. The
+    /// probe thread is a background thread: a process exiting without this wait
+    /// kills it before the restore and leaves the clock pinned.
+    /// </summary>
+    public bool CancelAndWait(TimeSpan timeout)
+    {
+        _cancel = true;
+        return _thread is not { } thread || thread.Join(timeout);
+    }
+
     /// <summary>Runs the sweep on a background thread, feeding points into the recorder.</summary>
     public void Start(VfCurveRecorder recorder)
     {
@@ -153,13 +172,13 @@ public sealed class VfCurveProbe
             // Restore whatever lock state existed before the probe — as the
             // RANGE lock profiles apply, never as an exact pin (which would
             // hold full clocks at idle).
-            if (previousLock is uint restore)
+            LastRestoreSucceeded = previousLock is uint restore
+                ? _tuner.RestoreTuningLock(restore) == NvmlReturn.Success
+                : _tuner.ForceUnlock().Applied;
+            if (!LastRestoreSucceeded)
             {
-                _ = _tuner.RestoreTuningLock(restore);
-            }
-            else
-            {
-                _ = _tuner.ForceUnlock();
+                Log.Warn("V/F probe: the driver did not accept restoring the pre-probe clock lock state; " +
+                         "the probe's clock pin may still be applied.");
             }
 
             recorder.Save();

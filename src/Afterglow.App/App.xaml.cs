@@ -372,7 +372,11 @@ public partial class App : Application
         // clean: the records stay unclean so the next launch's banner says the
         // last tuning may still be applied, instead of an unvalidated offset
         // surviving with nothing to say so (F-27).
+        // The V/F probe pins exact clocks the same way: cancel it first so its
+        // unwind overlaps the stepper's, then require both to have landed.
+        _mainViewModel?.VfCurve.BeginShutdown();
         bool settled = _mainViewModel?.Stability.StopForShutdown() ?? true;
+        settled &= _mainViewModel?.VfCurve.StopForShutdown() ?? true;
         if (settled)
         {
             AppliedStateStore.MarkCleanShutdown();
