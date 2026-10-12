@@ -38,7 +38,8 @@ jobs:
         run: dotnet build -c Release
 
       - name: Test
-        run: dotnet test -c Release --no-build --logger "console;verbosity=normal"
+        # Microsoft.Testing.Platform (global.json): results print by default.
+        run: dotnet test -c Release --no-build
 
       - name: Publish portable build
         if: startsWith(github.ref, 'refs/tags/v')
