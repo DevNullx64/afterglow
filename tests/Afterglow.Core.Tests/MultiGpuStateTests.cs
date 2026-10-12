@@ -109,10 +109,7 @@ public class ProfileGpuIdentityTests
         Assert.EndsWith(".json", a1, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void Vf_curve_paths_keep_the_primary_on_the_legacy_file()
-    {
-        Assert.Equal(VfCurveRecorder.DefaultPath, VfCurveRecorder.PathFor("GPU-aaaa", isPrimary: true));
-        Assert.NotEqual(VfCurveRecorder.DefaultPath, VfCurveRecorder.PathFor("GPU-aaaa", isPrimary: false));
-    }
+    // The V/F curve path rules live in VfCurveIdentityTests: the test that
+    // stood here asserted the primary card keeps the shared legacy file, which
+    // is the defect F-15/F-55 describe.
 }

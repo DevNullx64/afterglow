@@ -11,9 +11,12 @@ public partial class MainViewModel : ObservableObject
 {
     private readonly AppServices _services;
     private OverlayWindow? _overlay;
-    private (int Core, int Mem, double Power, uint? Boost, uint? Lock)? _preGameState;
-    private (Core.Profiles.FanMode Mode, uint FixedPct, Core.Fans.FanCurveConfig Curve)? _preGameFans;
-    private Core.Hardware.GpuContext? _preGameGpu;
+
+    /// <summary>
+    /// The card a game rule's profile landed on, as it was just before — one
+    /// object, so its parts can never describe different cards or sessions.
+    /// </summary>
+    private PreGameSnapshot? _preGame;
 
     public DashboardViewModel Dashboard { get; }
 
@@ -339,6 +342,10 @@ public partial class MainViewModel : ObservableObject
 
     private void OnGameStarted(GameRule rule)
     {
+        // A snapshot from an earlier session (a rule without revert-on-exit)
+        // must not survive into this one, whatever happens below (F-16).
+        _preGame = null;
+
         var profile = _services.Profiles.Load(rule.ProfileName);
         var gpu = profile is null ? null : TargetGpuFor(profile);
         if (gpu is null || profile is null)
@@ -346,10 +353,31 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        _preGameGpu = gpu;
-        _preGameState = gpu.Tuner.ReadCurrent();
-        _preGameFans = Fans.CurrentConfig;
-        var result = ApplyProfileFull(profile, gameContext: true);
+        // The apply below is pinned to this card, which makes the identity
+        // check ours: a profile stamped for a card that isn't here moves nothing.
+        if (!profile.AppliesToGpu(gpu.Tuner.GpuUuid))
+        {
+            TrayAlert?.Invoke(
+                "Afterglow profile not applied",
+                $"'{rule.ProfileName}' for {rule.ExecutableName} was saved for a different GPU " +
+                $"({profile.GpuName ?? profile.GpuUuid}) — re-save it on this card to use it here.");
+            return;
+        }
+
+        // Read the card the profile lands on — its fans from its own fan
+        // service and settings, not from the Fans page editor, which shows the
+        // SELECTED card (F-16); its temperature limit and V/F table, which
+        // ReadCurrent cannot see (F-21).
+        FanRestoreState? fans = _services.FanControl.TryGetValue(gpu.Index, out var fanService)
+            ? GameSessionRestore.CaptureFans(fanService.Mode, fanService.CommandedDuty, _services.FanSettingsFor(gpu))
+            : null;
+        var snapshot = GameSessionRestore.Capture(gpu.Tuner, gpu.Index, rule.ExecutableName, profile, fans);
+
+        var result = ApplyProfileFull(profile, gameContext: true, target: gpu);
+
+        // Refused outright (invalid, or stamped for a card that isn't here):
+        // nothing moved, so there is nothing to put back on exit.
+        _preGame = result.Results.Any(r => r.Knob == "profile" && !r.Applied) ? null : snapshot;
         TrayAlert?.Invoke(
             "Afterglow profile applied",
             $"'{rule.ProfileName}' for {rule.ExecutableName}" +
@@ -358,60 +386,47 @@ public partial class MainViewModel : ObservableObject
 
     private void OnGameExited(GameRule rule)
     {
-        // Restore to the exact card the game profile landed on.
-        var gpu = _preGameGpu ?? _services.SelectedGpu;
-        if (gpu is null || _preGameState is not { } pre)
+        // Consumed exactly once: a session's snapshot is never applied twice,
+        // nor after a later session.
+        var pre = _preGame;
+        _preGame = null;
+        if (pre is null)
         {
             return;
         }
 
-        _preGameState = null;
-        _preGameGpu = null;
-        var restore = new Core.Profiles.TuningProfile
+        // Back onto the card the snapshot was read from — by identity, never
+        // whichever card the title bar shows now.
+        var gpu = _services.Gpus.FirstOrDefault(g =>
+            g.Index == pre.GpuIndex &&
+            (pre.GpuUuid is null || string.Equals(g.Tuner.GpuUuid, pre.GpuUuid, StringComparison.OrdinalIgnoreCase)));
+        if (gpu is null)
         {
-            Name = "pre-game state",
-            CoreOffsetMHz = pre.Core,
-            MemOffsetMHz = pre.Mem,
-            PowerLimitW = pre.Power > 0 ? pre.Power : null,
-            VoltageBoostPct = pre.Boost,
-            LockedCoreClockMHz = pre.Lock,
-        };
-        // Built from ReadCurrent, which cannot see per-point offsets, so this
-        // restore must not be read as "the user wants no curve".
-        _ = gpu.Tuner.Apply(restore, reconcileVfPoints: false);
-
-        // Fans back to what the user had before the game (if the game profile changed them).
-        if (_preGameFans is { } fans && _services.FanControl.TryGetValue(gpu.Index, out var fanService))
-        {
-            switch (fans.Mode)
-            {
-                case Core.Profiles.FanMode.Fixed:
-                    fanService.SetFixed(fans.FixedPct);
-                    break;
-                case Core.Profiles.FanMode.Curve:
-                    try
-                    {
-                        fanService.SetCurve(fans.Curve);
-                    }
-                    catch (ArgumentException)
-                    {
-                    }
-
-                    break;
-                default:
-                    fanService.SetAuto();
-                    break;
-            }
-
-            if (gpu.Index == _services.SelectedGpu?.Index)
-            {
-                Fans.SyncFromApplied(fans.Mode, fans.FixedPct, fans.Mode == Core.Profiles.FanMode.Curve ? fans.Curve : null);
-            }
-
-            _preGameFans = null;
+            Core.Diagnostics.Log.Warn($"Game exit restore skipped: GPU {pre.GpuIndex} is no longer the card it was read from.");
+            return;
         }
 
-        TrayAlert?.Invoke("Afterglow", $"{rule.ExecutableName} exited — previous tuning (including fans) restored.");
+        var plan = GameSessionRestore.Plan(pre);
+
+        // The plan carries the V/F table itself when the game could have
+        // changed it; otherwise it has no opinion on the curve, and must not be
+        // read as "the user wants no curve".
+        var result = gpu.Tuner.Apply(plan.Profile, reconcileVfPoints: false);
+
+        // Fans only when the game profile changed them, and only this card's.
+        bool? fansRestored = null;
+        if (plan.Fans is { } fans && _services.FanControl.TryGetValue(gpu.Index, out var fanService))
+        {
+            fansRestored = GameSessionRestore.ApplyFans(fanService, fans);
+            if (fansRestored == true && gpu.Index == _services.SelectedGpu?.Index)
+            {
+                Fans.SyncFromApplied(fans.Mode, fans.FixedPct, fans.Curve);
+            }
+        }
+
+        string message = GameSessionRestore.Describe(rule.ExecutableName, result, fansRestored, plan.NotRestored);
+        Core.Diagnostics.Log.Info($"Game exit restore on GPU {gpu.Index}: {message} {result.Summary}");
+        TrayAlert?.Invoke("Afterglow", message);
         Tuning.RefreshFromHardware();
     }
 

@@ -13,6 +13,12 @@ public partial class StabilityViewModel : ObservableObject, IDisposable, ILivePa
     private GpuStressTest? _stress;
     private StabilityStepper? _stepper;
 
+    /// <summary>The card the current/last stepper run tunes (the selection may have moved since).</summary>
+    private GpuContext? _stepperGpu;
+
+    /// <summary>Outcome of <see cref="StopForShutdown"/>, once it has run.</summary>
+    private bool? _shutdownSettled;
+
     [ObservableProperty] private bool _stressRunning;
     [ObservableProperty] private string _stressStatusText = "Idle. The burn test loads the GPU with a deterministic compute workload and verifies every result bit-for-bit.";
     [ObservableProperty] private bool _stressFailed;
@@ -295,6 +301,7 @@ public partial class StabilityViewModel : ObservableObject, IDisposable, ILivePa
             return;
         }
 
+        _stepperGpu = _gpu;
         _stepper = new StabilityStepper(_gpu.Tuner) { TargetPciBusId = _gpu.PciBusId };
         _stepper.StatusChanged += status =>
             Application.Current?.Dispatcher.BeginInvoke(() => OnStepperStatus(status));
@@ -310,27 +317,65 @@ public partial class StabilityViewModel : ObservableObject, IDisposable, ILivePa
     public void Dispose()
     {
         GC.SuppressFinalize(this);
+        _ = StopForShutdown();
+    }
+
+    /// <summary>
+    /// Stops every run for app exit and says whether the card was left where
+    /// the stepper meant to leave it. App records a clean shutdown only when
+    /// this is true: otherwise the offset under test may still be applied, and
+    /// the next launch's crash banner is the only thing that would say so (F-27).
+    /// </summary>
+    public bool StopForShutdown()
+    {
+        if (_shutdownSettled is bool done)
+        {
+            return done;
+        }
+
+        var stepper = _stepper;
+        bool wasRunning = stepper?.IsRunning == true;
 
         // A stepper mid-run has an untested offset applied and its cancel path
         // puts the starting offset back, so give that a bounded moment to land
         // before the process goes away (in practice well under a second; the
-        // bound covers an offset apply already retrying). Never claim the
-        // restore happened if the run was still unwinding when time ran out.
-        // Ask everything to stop first, then wait once: the stepper's unwind
-        // and the burn/VRAM teardowns then overlap instead of adding up.
-        _stepper?.Cancel();
+        // bound covers an offset apply already retrying). Ask everything to
+        // stop first, then wait once: the stepper's unwind and the burn/VRAM
+        // teardowns then overlap instead of adding up.
+        stepper?.Cancel();
         _stress?.Stop();
         _vram?.Stop();
 
-        if (_stepper is { } stepper && !stepper.CancelAndWait(TimeSpan.FromSeconds(15)))
-        {
-            Core.Diagnostics.Log.Warn(
-                "Stepper did not finish stopping within 15 s of shutdown — the offset it was testing may still be " +
-                "applied, and a late write from it can leave the next launch reporting an unclean shutdown.");
-        }
-
+        bool unwound = stepper is null || stepper.CancelAndWait(TimeSpan.FromSeconds(15));
         _stress?.Dispose();
         _vram?.Dispose();
+
+        // The run's word that it restored is not enough — the restoring apply
+        // can fail (a driver still refusing calls after a TDR) and the run
+        // reports "cancelled" regardless. The card's own readback decides.
+        int? live = null;
+        if (wasRunning && unwound && _stepperGpu is { } gpu &&
+            gpu.Nvml.TryGetClockOffset(Core.Interop.Nvml.NvmlClockType.Graphics, out var offset) ==
+                Core.Interop.Nvml.NvmlReturn.Success)
+        {
+            live = offset.ClockOffsetMHz;
+        }
+
+        bool settled = stepper is null || StepperShutdown.LeftSettled(wasRunning, unwound, stepper.Status, live);
+        if (!settled)
+        {
+            string what = !unwound
+                ? "still stopping 15 s into shutdown"
+                : live is int l
+                    ? $"stopped, but the card reads {l} MHz instead of the {stepper!.Status.CurrentOffsetMHz} MHz it meant to leave"
+                    : $"stopped, but the card's core offset could not be read back to confirm the {stepper!.Status.CurrentOffsetMHz} MHz it meant to leave";
+            Core.Diagnostics.Log.Warn(
+                $"Stepper was {what} — the offset under test may still be applied; this exit is not recorded " +
+                "as a clean shutdown, so the next launch says so.");
+        }
+
+        _shutdownSettled = settled;
+        return settled;
     }
 
     private void OnStepperStatus(StepperStatus status)

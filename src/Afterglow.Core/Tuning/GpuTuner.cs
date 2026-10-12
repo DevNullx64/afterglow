@@ -849,6 +849,26 @@ public sealed class GpuTuner
             ? KnobResult.Ok(knob, detail)
             : KnobResult.Fail(knob, rc.ToString()));
     }
+
+    #region Pre-game snapshot reads (F-21)
+
+    /// <summary>
+    /// The temperature limit currently in force, in °C — null when this card
+    /// has no temperature-limit control or the driver would not report it.
+    /// Read-only: a game rule reads it before its profile lands so the exit
+    /// restore can put back the value it found instead of leaving the game's.
+    /// </summary>
+    public int? ReadTempLimitC()
+    {
+        if (!Capabilities.SupportsTempLimit || _nvapi is null)
+        {
+            return null;
+        }
+
+        return _nvapi.TryGetTempLimit(out int currentC) == NvapiStatus.Ok ? currentC : null;
+    }
+
+    #endregion
 }
 
 /// <summary>
