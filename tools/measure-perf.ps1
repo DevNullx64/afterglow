@@ -6,7 +6,11 @@
 .DESCRIPTION
     Every run uses a fresh --data-dir under -OutDir, so the installed copy's
     settings, profiles and flight recordings are never read or rotated, and
-    runs unelevated (--no-elevate): monitoring only, no hardware writes.
+    passes --no-elevate. Run this from an UNELEVATED shell: --no-elevate only
+    skips the UAC relaunch and cannot drop a token the shell already has; from
+    a normal shell every measured instance is monitoring-only and makes no
+    hardware writes. (An elevated copy beside a resident elevated Afterglow
+    now refuses to start.)
 
     Scenarios:
       visible    the window open on the dashboard (graphs drawing every tick)

@@ -469,19 +469,16 @@ public partial class MainViewModel : ObservableObject
     {
         foreach (var alert in raised)
         {
-            string gpu = _services.Gpus.Count > 1 ? $"GPU {alert.DeviceIndex} " : "GPU ";
-            if (alert.Sensor == Core.Services.AlertSensor.Gpu)
-            {
-                TrayAlert?.Invoke(
-                    "GPU temperature alert",
-                    $"{gpu}core reached {alert.ValueC:F0}°C (alert set at {alert.ThresholdC}°C).");
-            }
-            else
-            {
-                TrayAlert?.Invoke(
-                    "Memory temperature alert",
-                    $"{gpu}memory junction reached {alert.ValueC:F0}°C (alert set at {alert.ThresholdC}°C).");
-            }
+            // The tray throttles by title, so on a multi-GPU machine each card
+            // needs its own title — otherwise the second card's crossing inside
+            // the same minute is dropped, and (edge-triggered) never raised again.
+            bool core = alert.Sensor == Core.Services.AlertSensor.Gpu;
+            string gpu = _services.Gpus.Count > 1 ? $"GPU {alert.DeviceIndex}" : "GPU";
+            string title = $"{gpu} {(core ? "temperature" : "memory temperature")} alert";
+            string message = $"{gpu} {(core ? "core" : "memory junction")} reached {alert.ValueC:F0}°C " +
+                             $"(alert set at {alert.ThresholdC}°C).";
+            Core.Diagnostics.Log.Info($"{title}: {message}");
+            TrayAlert?.Invoke(title, message);
         }
     }
 

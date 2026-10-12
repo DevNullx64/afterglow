@@ -11,11 +11,24 @@ public sealed class FlightRecorderTests : IDisposable
     {
         if (Directory.Exists(_dir))
         {
+            foreach (string file in Directory.GetFiles(_dir, "*", SearchOption.AllDirectories))
+            {
+                File.SetAttributes(file, FileAttributes.Normal);
+            }
+
             Directory.Delete(_dir, recursive: true);
         }
     }
 
     private string PathOf(string name) => Path.Combine(_dir, name);
+
+    /// <summary>Reads a file the recorder still holds open for writing.</summary>
+    private static string ReadShared(string path)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
 
     private static GpuSnapshot Snap(long ms, uint util = 10) => new()
     {
@@ -42,6 +55,30 @@ public sealed class FlightRecorderTests : IDisposable
         Assert.EndsWith(" clean-shutdown", lines[^1], StringComparison.Ordinal);
         Assert.True(FlightSession.EndedCleanly(PathOf("current.log")));
         Assert.Null(CrashForensics.AnalyzePreviousSession(_dir));
+    }
+
+    [Fact]
+    public void A_segment_roll_that_cannot_recreate_the_file_stops_recording_instead_of_crashing()
+    {
+        // The writer runs on a background thread, where an unhandled exception
+        // would end the process before the fans are handed back. Make the roll's
+        // re-create fail: rotation blocked (a directory where the older segment
+        // goes) and current.log read-only, so FileMode.Create is denied.
+        using (var recorder = new FlightRecorder(_dir, segmentBytes: 1_000))
+        {
+            Directory.CreateDirectory(PathOf("current.older.log"));
+            recorder.Marker("before");
+            SpinWait.SpinUntil(() => ReadShared(PathOf("current.log")).Contains("before", StringComparison.Ordinal), 2000);
+            File.SetAttributes(PathOf("current.log"), FileAttributes.ReadOnly);
+
+            for (int i = 0; i < 100; i++)
+            {
+                recorder.Record(Snap(1_000 + (i * 1_000L)));
+            }
+        }
+
+        // Still here (the test process survived), and the stopped session wrote nothing more.
+        Assert.DoesNotContain(File.ReadAllLines(PathOf("current.log")), l => l.EndsWith(" clean-shutdown", StringComparison.Ordinal));
     }
 
     [Fact]

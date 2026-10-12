@@ -55,6 +55,24 @@ public static class CommandLine
     }
 
     /// <summary>
+    /// The arguments with a <c>--data-dir</c> value replaced by the already
+    /// resolved <see cref="AppPaths.Root"/>, for handing to another process
+    /// (the elevated relaunch) whose working directory may differ.
+    /// </summary>
+    public static string[] WithResolvedDataDir(string[] args)
+    {
+        int at = Array.FindIndex(args, a => a.Equals("--data-dir", StringComparison.OrdinalIgnoreCase));
+        if (at < 0 || at == args.Length - 1 || !AppPaths.IsRedirected)
+        {
+            return args;
+        }
+
+        string[] copy = [.. args];
+        copy[at + 1] = AppPaths.Root;
+        return copy;
+    }
+
+    /// <summary>
     /// Applies <c>--data-dir PATH</c> when present and returns the arguments
     /// without it, so commands that parse positionally never see it.
     /// </summary>

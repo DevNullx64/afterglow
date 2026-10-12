@@ -120,6 +120,10 @@ public sealed class VfCurveProbe
         }
 
         uint? previousLock = _tuner.AppliedLockMHz;
+
+        // Whether this run ever pinned a clock: a sweep refused at its first
+        // lock left nothing to undo, so its restore outcome must not count.
+        bool pinned = false;
         using var load = new GpuStressTest { IterationsPerDispatch = 2048, TargetPciBusId = TargetPciBusId };
         load.Start();
 
@@ -136,6 +140,8 @@ public sealed class VfCurveProbe
                         "clock lock refused (administrator rights required)"));
                     break;
                 }
+
+                pinned = true;
 
                 Sleep(SettleSeconds);
                 if (_cancel)
@@ -172,9 +178,10 @@ public sealed class VfCurveProbe
             // Restore whatever lock state existed before the probe — as the
             // RANGE lock profiles apply, never as an exact pin (which would
             // hold full clocks at idle).
-            LastRestoreSucceeded = previousLock is uint restore
+            bool restored = previousLock is uint restore
                 ? _tuner.RestoreTuningLock(restore) == NvmlReturn.Success
                 : _tuner.ForceUnlock().Applied;
+            LastRestoreSucceeded = restored || !pinned;
             if (!LastRestoreSucceeded)
             {
                 Log.Warn("V/F probe: the driver did not accept restoring the pre-probe clock lock state; " +

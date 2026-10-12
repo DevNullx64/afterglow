@@ -32,7 +32,9 @@ public static class AppPaths
     public static void UseDataRoot(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        OverrideRoot = Path.GetFullPath(path);
+
+        // Normalised, so D:\t and D:\t\ are one root (and one instance name).
+        OverrideRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
     }
 
     /// <summary>

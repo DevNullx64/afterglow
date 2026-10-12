@@ -50,6 +50,11 @@ public sealed partial class TrayService : IDisposable
     private string _tooltip = "Afterglow";
     private bool _disposed;
 
+    // Logon race: the elevated task can start before Explorer's notification
+    // area exists. Retry the add on a timer as well as on TaskbarCreated.
+    private readonly System.Windows.Threading.DispatcherTimer _retryAdd = new() { Interval = TimeSpan.FromSeconds(2) };
+    private int _retryAttempts;
+
     public event Action? OpenRequested;
 
     public event Action? OverlayToggleRequested;
@@ -71,9 +76,26 @@ public sealed partial class TrayService : IDisposable
         });
         _window.AddHook(WndProc);
 
+        // An elevated window doesn't receive Explorer's (unelevated) TaskbarCreated
+        // broadcast unless it lets the message through UIPI — and the logon task
+        // runs elevated. Without this the icon would never come back after an
+        // Explorer restart.
+        if (TaskbarCreatedMessage != 0)
+        {
+            _ = ChangeWindowMessageFilterEx(_window.Handle, TaskbarCreatedMessage, MsgFltAllow, 0);
+        }
+
+        _retryAdd.Tick += (_, _) =>
+        {
+            if (_disposed || Add() || ++_retryAttempts >= 60)
+            {
+                _retryAdd.Stop();
+            }
+        };
+
         _icon = LoadIcon();
         _menu = BuildMenu();
-        Add();
+        _ = Add();
     }
 
     private ContextMenu BuildMenu()
@@ -119,7 +141,7 @@ public sealed partial class TrayService : IDisposable
         else if (TaskbarCreatedMessage != 0 && (uint)msg == TaskbarCreatedMessage)
         {
             // Explorer restarted: its notification area forgot every icon.
-            Add();
+            _ = Add();
         }
 
         return 0;
@@ -133,18 +155,26 @@ public sealed partial class TrayService : IDisposable
         _menu.IsOpen = true;
     }
 
-    private unsafe void Add()
+    /// <summary>Adds (or re-adds) the icon; on failure retries every 2 s for up to 2 minutes.</summary>
+    private unsafe bool Add()
     {
         var data = NewData(NifMessage | NifIcon | NifTip | NifShowTip);
         if (!ShellNotifyIcon(NimAdd, &data))
         {
-            // Normal while Explorer is still starting at logon; TaskbarCreated retries.
-            Core.Diagnostics.Log.Info("Tray icon not added yet (notification area unavailable).");
-            return;
+            // Normal while Explorer is still starting at logon.
+            if (!_retryAdd.IsEnabled)
+            {
+                Core.Diagnostics.Log.Info("Tray icon not added yet (notification area unavailable); retrying.");
+                _retryAttempts = 0;
+                _retryAdd.Start();
+            }
+
+            return false;
         }
 
         data.TimeoutOrVersion = NotifyIconVersion4;
         _ = ShellNotifyIcon(NimSetVersion, &data);
+        return true;
     }
 
     private unsafe NotifyIconData NewData(uint flags)
@@ -245,6 +275,7 @@ public sealed partial class TrayService : IDisposable
         }
 
         _disposed = true;
+        _retryAdd.Stop();
         _menu.IsOpen = false;
         var data = NewData(0);
         _ = ShellNotifyIcon(NimDelete, &data);
@@ -294,6 +325,12 @@ public sealed partial class TrayService : IDisposable
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool DestroyIcon(nint icon);
+
+    private const uint MsgFltAllow = 1;
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool ChangeWindowMessageFilterEx(nint window, uint message, uint action, nint changeFilterStruct);
 }
 
 /// <summary>Picks one frame out of a .ico file and turns it into an HICON.</summary>

@@ -73,6 +73,48 @@ public sealed partial class CommandLineTests
     }
 
     [Fact]
+    public void A_relative_data_dir_reaches_the_elevated_relaunch_already_resolved()
+    {
+        string? before = AppPaths.OverrideRoot;
+        try
+        {
+            // Resolved against THIS process's working directory; the elevated
+            // copy starts elsewhere (typically System32) and must not re-resolve it.
+            string[] original = ["--data-dir", "relative-test-root", "--minimized"];
+            _ = CommandLine.ApplyDataDir(original);
+
+            string[] relaunch = CommandLine.WithResolvedDataDir(original);
+
+            Assert.Equal(Path.GetFullPath("relative-test-root"), relaunch[1]);
+            Assert.Equal("relative-test-root", original[1]);   // the caller's array is untouched
+            Assert.Equal("--minimized", relaunch[2]);
+        }
+        finally
+        {
+            AppPaths.OverrideRoot = before;
+        }
+    }
+
+    [Fact]
+    public void A_trailing_separator_names_the_same_data_root_and_instance()
+    {
+        string? before = AppPaths.OverrideRoot;
+        try
+        {
+            AppPaths.UseDataRoot(@"C:\afterglow-test\");
+            string withSlash = AppPaths.InstanceSuffix;
+            AppPaths.UseDataRoot(@"C:\afterglow-test");
+
+            Assert.Equal(@"C:\afterglow-test", AppPaths.Root);
+            Assert.Equal(withSlash, AppPaths.InstanceSuffix);
+        }
+        finally
+        {
+            AppPaths.OverrideRoot = before;
+        }
+    }
+
+    [Fact]
     public void ApplyDataDir_without_a_value_is_refused() =>
         Assert.Throws<ArgumentException>(() => CommandLine.ApplyDataDir(["monitor", "--data-dir"]));
 

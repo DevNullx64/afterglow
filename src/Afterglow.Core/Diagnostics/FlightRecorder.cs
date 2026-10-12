@@ -117,11 +117,27 @@ public sealed class FlightRecorder : IDisposable
 
     private void WriteLoop()
     {
-        foreach (string line in _queue.GetConsumingEnumerable())
+        try
         {
-            Write(line);
+            foreach (string line in _queue.GetConsumingEnumerable())
+            {
+                if (!_failed)
+                {
+                    Write(line);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // An exception escaping a background thread ends the whole process —
+            // before OnExit, so before the fans are handed back. Diagnostics must
+            // never be the reason for that.
+            Log.Warn($"Flight recorder stopped: {ex.GetType().Name}: {ex.Message}");
         }
     }
+
+    // Writer thread only: set when the session file can no longer be written.
+    private bool _failed;
 
     private void Write(string line)
     {
@@ -147,6 +163,13 @@ public sealed class FlightRecorder : IDisposable
         }
         catch (ObjectDisposedException)
         {
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            // e.g. a segment roll re-creating current.log after the data root was
+            // locked down by an elevated instance: stop recording, keep running.
+            _failed = true;
+            Log.Warn($"Flight recorder stopped: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -197,9 +220,9 @@ public sealed class FlightRecorder : IDisposable
             return;
         }
 
-        // The clean-shutdown marker goes in last, after everything queued, so
-        // its presence still means "the session ended on purpose".
-        _ = _queue.TryAdd(MarkerLine("clean-shutdown"));
+        // Drain, then write the clean-shutdown marker directly: written after
+        // the writer thread is gone it is guaranteed last, and it can't be
+        // dropped by a full queue (which would fake a crash next launch).
         _queue.CompleteAdding();
         if (!_writerThread.Join(TimeSpan.FromSeconds(3)))
         {
@@ -208,7 +231,19 @@ public sealed class FlightRecorder : IDisposable
             return;
         }
 
-        _writer.Dispose();
+        if (!_failed)
+        {
+            Write(MarkerLine("clean-shutdown"));
+        }
+
+        try
+        {
+            _writer.Dispose();
+        }
+        catch (IOException)
+        {
+        }
+
         _queue.Dispose();
     }
 }

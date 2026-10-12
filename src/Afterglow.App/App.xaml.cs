@@ -21,6 +21,7 @@ public partial class App : Application
     private DispatcherTimer? _tooltipTimer;
     private bool _exitRequested;
     private System.Threading.Mutex? _singleInstanceMutex;
+    private System.Threading.Mutex? _hardwareOwnerMutex;
     private System.Threading.EventWaitHandle? _activationSignal;
     private RegisteredWaitHandle? _activationWait;
 
@@ -100,9 +101,37 @@ public partial class App : Application
         // prompt continues in monitoring-only mode.
         if (!demo && screenshotPath is null && !args.Contains("--no-elevate") && !AppServices.CheckElevated())
         {
-            if (TryRelaunchElevated(e.Args))
+            // The --data-dir value goes over already resolved: the elevated copy
+            // resolves relative paths against its own working directory.
+            if (TryRelaunchElevated(Core.CommandLine.WithResolvedDataDir(e.Args)))
             {
                 Shutdown();
+                return;
+            }
+        }
+
+        // At most one Afterglow may hold administrator rights at a time: two
+        // would fight over fans, clock locks, the TDR watchdog's resets and game
+        // rules. The per-data-root single-instance mutex above lets a --data-dir
+        // instance run beside the resident one, so this second, machine-wide
+        // guard is what keeps that pair from both driving the hardware.
+        // Unelevated instances can't write and don't take part.
+        if (!demo && screenshotPath is null && AppServices.CheckElevated())
+        {
+            _hardwareOwnerMutex = new System.Threading.Mutex(
+                initiallyOwned: true, @"Local\AfterglowHardwareOwner", out bool ownsHardware);
+            if (!ownsHardware)
+            {
+                _hardwareOwnerMutex.Dispose();
+                _hardwareOwnerMutex = null;
+                MessageBox.Show(
+                    "Another Afterglow with administrator rights is already controlling the GPU" +
+                    (Core.AppPaths.IsRedirected ? " (this copy was started with --data-dir)" : string.Empty) +
+                    ". Two would fight over the fans, clock locks and crash recovery, so this copy exits.\n\n" +
+                    "Close the other one first, or run this copy with --no-elevate from a normal (unelevated) " +
+                    "shell for monitoring only.",
+                    "Afterglow", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Shutdown(3);
                 return;
             }
         }
@@ -377,7 +406,12 @@ public partial class App : Application
         _mainViewModel?.VfCurve.BeginShutdown();
         bool settled = _mainViewModel?.Stability.StopForShutdown() ?? true;
         settled &= _mainViewModel?.VfCurve.StopForShutdown() ?? true;
-        if (settled)
+
+        // Only a process that ran the services may vouch for a clean exit: a
+        // second launch that just signalled the first, the installer's
+        // --register-startup hook or an argument error would otherwise mark
+        // the RUNNING instance's records clean and erase its crash evidence.
+        if (settled && _services is { DemoMode: false })
         {
             AppliedStateStore.MarkCleanShutdown();
         }
@@ -387,6 +421,7 @@ public partial class App : Application
         _activationWait?.Unregister(null);
         _activationSignal?.Dispose();
         _singleInstanceMutex?.Dispose();
+        _hardwareOwnerMutex?.Dispose();
         base.OnExit(e);
     }
 }
