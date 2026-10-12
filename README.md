@@ -17,6 +17,8 @@
 
 <p align="center">
   <img src="docs/media/dashboard.png" width="860" alt="The Afterglow dashboard on an RTX 5090" />
+  <br/>
+  <sub>The dashboard after ten minutes of ordinary desktop use on an RTX 5090.</sub>
 </p>
 
 ---
@@ -30,9 +32,10 @@ Afterglow tells you why in plain words ("the board hit its power limit") and how
 degrees you have left before it starts throttling.
 
 **Overclocks and undervolts, safely.** Every slider is limited to the range the driver says
-is legal for your exact card, and every change is read back to confirm it actually took. To
-undervolt you can pick a preset, click a point on your card's measured voltage/frequency
-curve, or edit the driver's curve point by point.
+is legal for your exact card, and each change is read back to confirm it actually took
+(NVIDIA's clock lock is the exception: the driver can't report it, so Afterglow keeps track
+of it and says so). To undervolt you can pick a preset, click a point on your card's
+measured voltage/frequency curve, or edit the driver's curve point by point.
 
 <p align="center">
   <img src="docs/media/tuning.png" width="860" alt="The Tuning page" />
@@ -49,7 +52,7 @@ and a one-click certification that runs all four tests against a saved profile. 
 does crash, the next launch explains what was happening in the seconds before.
 
 <p align="center">
-  <img src="docs/media/vfcurve.png" width="860" alt="The measured voltage/frequency curve of an RTX 5090" />
+  <img src="docs/media/stability.png" width="860" alt="The Stability page: burn test, VRAM test and the overclock stepper" />
 </p>
 
 **Measures frame rates without injecting anything.** Average FPS, 1% and 0.1% lows and a
@@ -69,6 +72,28 @@ Model Context Protocol, within the same limits as the app
 
 The full list, with how each feature works and where it was tested, is in
 [docs/features.md](docs/features.md).
+
+<table>
+  <tr>
+    <td><img src="docs/media/vfcurve.png" alt="V/F Curve page: the driver's stored voltage/frequency table" /></td>
+    <td><img src="docs/media/fans.png" alt="Fans page: control mode and the fan curve editor" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>V/F Curve: the driver's stored curve (gold) with the measured one on top as it builds up</sub></td>
+    <td align="center"><sub>Fans: firmware, fixed or your own curve, driven by any temperature</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/profiles.png" alt="Profiles page: saved profiles with stable and certified badges" /></td>
+    <td><img src="docs/media/settings.png" alt="Settings page, grouped like Windows Settings" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Profiles: saved, tested, certified, and per-game rules</sub></td>
+    <td align="center"><sub>Settings: startup, logging, alerts, automation, overlay</sub></td>
+  </tr>
+</table>
+
+<sub>All screenshots are real captures from an RTX 5090 on driver 617.42, made with
+[tools/screenshots.ps1](tools/screenshots.ps1).</sub>
 
 ## Why another tuning tool?
 
@@ -209,9 +234,9 @@ The `tools` folder has the scripts that make the screenshots above
 
 ## Safety
 
-Afterglow only writes values the driver itself says are legal for your card, and checks
-each one by reading it back. Nothing it sets survives a reboot unless you choose a startup
-profile. If the driver crashes while you're tuned, Afterglow resets to stock; if the PC
+Afterglow only writes values the driver itself says are legal for your card, and reads each
+one back wherever the driver allows it. Clock and power settings don't survive a reboot
+unless you choose a startup profile. If the driver crashes while you're tuned, Afterglow resets to stock; if the PC
 crashes, the next launch offers to. Overclocking is still overclocking: you own the risk,
 and an error in the stress test means back off.
 
@@ -224,6 +249,8 @@ Which driver interfaces are used, and how each was verified on real hardware:
   its pinned hash are in `ThirdParty/PresentMon` and [THIRD_PARTY.md](THIRD_PARTY.md).
 - **LibreHardwareMonitor** and **NvAPIWrapper** published the NVAPI knowledge the interop
   layer was built from (no code copied).
+- Intel's published **IGCL** and **Level Zero** headers (MIT) for the Intel structure
+  layouts (no code copied).
 - **CapFrameX** and Gamers Nexus for the frame-metric definitions.
 
-MIT licensed. Not affiliated with or endorsed by NVIDIA.
+MIT licensed. Not affiliated with or endorsed by NVIDIA or Intel.
