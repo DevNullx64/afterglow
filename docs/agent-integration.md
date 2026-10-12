@@ -31,7 +31,9 @@ Tools:
 | `get_telemetry` | Full sensor snapshot: clocks, temps (incl. memory junction), instantaneous power, fans, throttle reasons, throttle headroom |
 | `apply_tuning` | Apply core/mem offsets, power limit, clock lock (undervolt), voltage boost, fan duty — clamped + verified, per-knob results |
 | `reset_defaults` | The safe abort: everything back to driver defaults |
-| `run_stress` | Error-checked burn for N seconds; returns `stable` (bit-exact + no TDR), dispatch throughput (relative perf score), and peak temp/power/clock during the burn |
+| `run_stress` | Error-checked burn for N seconds; returns `stable` (bit-exact + no TDR), dispatch throughput (relative perf score), and peak temp/power/clock during the burn. `pattern` selects `sustained` (default), `transitions`, or `excursions` |
+| `find_stable_offset` | The guided stability stepper as one autonomous call: steps the core offset up, burn-testing each step, backs off on the first failure, and runs a longer confirmation burn. Blocks until finished (several minutes), honours a `max_minutes` budget (restores the starting offset on timeout), and leaves the confirmed stable offset applied. Requires elevation |
+| `run_vram_test` | Full-capacity VRAM test: fills as much of the card's memory as the OS safely allows with a verified pattern (alternate rounds inverted). Returns coverage, full rounds, and error count — any error means the current memory clocks are unstable |
 | `list_profiles` / `save_profile` / `apply_profile` | Persist and reuse results |
 
 ### The autonomous tuning loop
@@ -53,8 +55,10 @@ Watch `peak_gpu_temp_c` / `peak_power_w` between steps and stop early on thermal
 the same signal a human tuner uses. Afterglow's TDR watchdog remains armed the whole time,
 and a human can always pull the plug with Ctrl+Alt+R.
 
-Note: the in-app Stability page's guided stepper implements this exact loop natively if you
-just want the result without an agent.
+Note: `find_stable_offset` packages this whole loop into a single blocking MCP call (step
+up, back off on failure, confirmation burn, restore-on-timeout), so an agent that just
+wants the result need not hand-build steps 3-4. The in-app Stability page's guided stepper
+is the same loop natively.
 
 ## 2. Plain CLI with `--json`
 
