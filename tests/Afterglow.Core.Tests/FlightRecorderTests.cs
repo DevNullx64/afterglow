@@ -110,6 +110,30 @@ public sealed class FlightRecorderTests : IDisposable
         Assert.False(FlightSession.EndedCleanly(PathOf("current.log")));
     }
 
+    [Theory]
+    [InlineData("#9000000000000000 boom")]                        // marker beyond year 9999
+    [InlineData("9999999999999999|900|1500|60|70|300|99|900|40")] // sample beyond year 9999
+    [InlineData("-99999999999999999|1|1|1|1|1|1")]
+    public void Out_of_range_timestamps_are_skipped_not_thrown(string poisoned)
+    {
+        // F-34: a valid Int64 that DateTimeOffset rejects used to escape startup
+        // and, since the file was never rotated, block every later launch.
+        var session = FlightSession.Parse(["#flight v1 started=1", "#1000 offsets core=50 mem=0", poisoned]);
+
+        Assert.Equal(50, session.CoreOffsetMHz);
+        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1000), session.EndedAt);
+    }
+
+    [Fact]
+    public void A_poisoned_recording_does_not_stop_the_analysis()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllLines(PathOf("current.log"), ["#flight v1 started=1", "#9000000000000000 boom"]);
+
+        // No throw; a recording with nothing usable in it yields no report.
+        Assert.Null(CrashForensics.AnalyzePreviousSession(_dir));
+    }
+
     [Fact]
     public void A_huge_legacy_recording_falls_back_to_a_full_read_for_its_offsets()
     {

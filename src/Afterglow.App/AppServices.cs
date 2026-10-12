@@ -283,15 +283,26 @@ public sealed class AppServices : IDisposable
                     : System.IO.Path.Combine(AppPaths.FlightDir,
                         string.Create(System.Globalization.CultureInfo.InvariantCulture, $"gpu{gpu.Index}"));
 
-            try
+            // A machine crash ends every stream at once; the first stream with
+            // findings names the report (primary checked first). Each analysis
+            // is fenced on its own: whatever is in an old recording — torn,
+            // corrupted, or planted before first run (ProgramData lets standard
+            // users add files) — must not stop the app, nor the rotation below
+            // that moves the bad file out of the way (F-34).
+            foreach (var gpu in manager.Gpus)
             {
-                // A machine crash ends every stream at once; the first stream
-                // with findings names the report (primary checked first).
-                foreach (var gpu in manager.Gpus)
+                try
                 {
                     crashReport ??= Core.Diagnostics.CrashForensics.AnalyzePreviousSession(FlightDirFor(gpu));
                 }
+                catch (Exception ex)
+                {
+                    Core.Diagnostics.Log.Warn($"Crash analysis skipped for GPU {gpu.Index}: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
 
+            try
+            {
                 foreach (var gpu in manager.Gpus)
                 {
                     flights[gpu.Index] = new Core.Diagnostics.FlightRecorder(FlightDirFor(gpu));

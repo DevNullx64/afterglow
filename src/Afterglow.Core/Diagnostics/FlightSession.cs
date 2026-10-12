@@ -161,7 +161,12 @@ public sealed class FlightSession
                     continue;   // header or malformed marker
                 }
 
-                endedAt = DateTimeOffset.FromUnixTimeMilliseconds(markerMs);
+                if (!TryTimestamp(markerMs, out var markerAt))
+                {
+                    continue;   // a valid long, but no date FromUnixTimeMilliseconds accepts (F-34)
+                }
+
+                endedAt = markerAt;
                 string text = line[(space + 1)..];
                 markers.Add(text);
 
@@ -199,7 +204,11 @@ public sealed class FlightSession
                 continue;
             }
 
-            var ts = DateTimeOffset.FromUnixTimeMilliseconds(ms);
+            if (!TryTimestamp(ms, out var ts))
+            {
+                continue;
+            }
+
             endedAt = ts;
             samples.Add(new FlightSample(
                 ts,
@@ -285,6 +294,15 @@ public sealed class FlightSession
         }
 
         return (bestEnd, bestLength);
+    }
+
+    private static bool TryTimestamp(long unixMs, out DateTimeOffset at)
+    {
+        // DateTimeOffset's own limits (years 0001-9999); anything outside would throw.
+        const long Min = -62_135_596_800_000;
+        const long Max = 253_402_300_799_999;
+        at = unixMs is >= Min and <= Max ? DateTimeOffset.FromUnixTimeMilliseconds(unixMs) : default;
+        return unixMs is >= Min and <= Max;
     }
 
     private static uint? ParseU(string s) =>
