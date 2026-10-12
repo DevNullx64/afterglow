@@ -24,4 +24,10 @@
     <ProjectReference Include="..\..\src\Afterglow.Core\Afterglow.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The window-effects version gate is pure C# inside the WPF app; compile that one
+         file in (WindowEffectsPlanTests) instead of referencing the WinExe. -->
+    <Compile Include="..\..\src\Afterglow.App\Shell\WindowEffectsPlan.cs" Link="Shell\WindowEffectsPlan.cs" />
+  </ItemGroup>
+
 </Project>
