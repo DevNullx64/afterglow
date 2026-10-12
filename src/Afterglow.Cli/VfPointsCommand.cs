@@ -11,8 +11,10 @@ namespace Afterglow.Cli;
 ///   (no args)                     list the stored table with applied offsets
 ///   --set "IDX=MHZ,IDX=MHZ"       write specific point offsets
 ///   --flatten MV:MHZ              classic curve undervolt at the point nearest MV
-///   --clear                       zero every point offset (the global core offset survived
-///                                 this on RTX 5090 / 616.56; re-check yours with `get`)
+///   --clear                       remove every per-point offset, then read the table back:
+///                                 the output says whether shape is gone and what every
+///                                 point reads now. On RTX 5090 / 616.56 that was the
+///                                 global core offset — the clear left it in place (F-52)
 /// </summary>
 internal static class VfPointsCommand
 {

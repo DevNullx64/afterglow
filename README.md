@@ -54,8 +54,11 @@ Afterglow is a from-scratch, MIT-licensed answer:
   One-click presets in the undervolt wizard
 - **Per-point V/F curve editor** — direct edits to the driver's stored curve table, the
   mechanism Afterburner's curve editor uses: per-point offsets, a one-click flatten undervolt
-  (raise the point at your target voltage, cap everything above it), every write verified by
-  reading the table back. Verified live on RTX 5090; expected on RTX 20/30/40 via the same
+  (raise the point at your target voltage, cap everything above it — and any lower point that
+  stock already runs faster than the target), and clear-all. Out-of-range offsets are refused,
+  never clamped, and every write — clear-all included — is checked by reading the table back
+  against what you asked for (when a readback isn't possible, the result says so instead of
+  claiming verification). Verified live on RTX 5090; expected on RTX 20/30/40 via the same
   interfaces. Also `afterglow-cli vfpoints`
 - **Measured V/F curve** — the stored table says what the driver intends; the measured curve
   shows what the GPU actually does under the power limit and thermals. A ~1-minute probe locks

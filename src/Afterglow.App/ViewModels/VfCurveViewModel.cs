@@ -87,10 +87,12 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
         "Direct edits to the driver's stored V/F table — the mechanism Afterburner's curve editor uses. " +
         "Verified working on RTX 50 (5090, driver 616.56); expected to work on RTX 20/30/40 with the same " +
         "interfaces. The global core offset shares this table, so applying a core offset rewrites every " +
-        "point at once and erases per-point edits — set the offset first, shape the curve second. Applying " +
-        "any profile also removes point offsets that profile doesn't carry, so the curve matches what you " +
-        "applied. Every write is verified by reading the table back. Validate with the Stability page " +
-        "afterwards — a point that applies is not a point that's stable.";
+        "point at once and erases per-point edits — set the offset first, shape the curve second. Clearing " +
+        "point offsets left the global core offset in place on the 5090 tested; the status line reports what " +
+        "every point reads afterwards on yours. Applying any profile also removes point offsets that profile " +
+        "doesn't carry, so the curve matches what you applied. Every write, clear included, is checked by " +
+        "reading the table back, and the status line says so when that readback isn't possible. Validate " +
+        "with the Stability page afterwards — a point that applies is not a point that's stable.";
 
     private void RefreshVfPoints()
     {

@@ -318,10 +318,12 @@ public sealed class GpuTuner
             // offset shares it and was just set to 0 above, so the clear can
             // take nothing else with it. Profile apply reaches the same call
             // only for a profile that recorded a curve reading, and always
-            // writes the core offset again afterwards.
+            // writes the core offset again afterwards. The clear is read back
+            // like every other write (F-57): a panic or TDR reset must not
+            // report a clear it never confirmed.
             if (Capabilities.SupportsVfPoints && _nvapi is not null)
             {
-                ReportNv(results, "V/F points", _nvapi.TryClearVfpPointOffsets(), "cleared");
+                results.Add(ClearVfPointsAndVerify());
             }
 
             var unlockRc = _nvml.TryResetGpuLockedClocks();
@@ -378,7 +380,11 @@ public sealed class GpuTuner
         }
     }
 
-    /// <summary>Clears all per-point curve offsets (UI/CLI entry point).</summary>
+    /// <summary>
+    /// Clears all per-point curve offsets (UI/CLI entry point), then reads the
+    /// table back: the result says whether per-point shape is really gone and
+    /// what every point reads afterwards (see <see cref="VfPointPlanner.VerifyClear"/>).
+    /// </summary>
     public KnobResult ClearVfPointOffsets()
     {
         lock (_applyLock)
@@ -388,11 +394,37 @@ public sealed class GpuTuner
                 return KnobResult.Fail("V/F points", "per-point curve control is not supported on this GPU/driver");
             }
 
-            var rc = _nvapi.TryClearVfpPointOffsets();
-            return rc == NvapiStatus.Ok
-                ? KnobResult.Ok("V/F points", "cleared")
-                : KnobResult.Fail("V/F points", rc.ToString());
+            return ClearVfPointsAndVerify();
         }
+    }
+
+    /// <summary>
+    /// The clear-all write followed by its readback (F-06/F-43/F-57). The global
+    /// core offset is read from the driver after the clear so the report can
+    /// say whether the table still carries it — it did on RTX 5090 / 616.56,
+    /// and the report states what this card did rather than assuming that.
+    /// </summary>
+    private KnobResult ClearVfPointsAndVerify()
+    {
+        var rc = _nvapi!.TryClearVfpPointOffsets();
+        if (rc != NvapiStatus.Ok)
+        {
+            return KnobResult.Fail("V/F points", rc.ToString());
+        }
+
+        var readRc = _nvapi.TryGetVfpPoints(out var after);
+        int? globalCoreOffset = Capabilities.SupportsCoreOffset &&
+            _nvml.TryGetClockOffset(NvmlClockType.Graphics, out var core) == NvmlReturn.Success
+                ? core.ClockOffsetMHz
+                : null;
+
+        var result = VfPointPlanner.VerifyClear(readRc, after, globalCoreOffset);
+        if (!result.Applied)
+        {
+            Log.Warn($"V/F clear: {result.Detail}");
+        }
+
+        return result;
     }
 
     /// <summary>

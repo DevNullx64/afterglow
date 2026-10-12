@@ -124,6 +124,68 @@ public static class VfPointPlanner
                 $"driver accepted the write but readback matched only {matched}/{requested.Count} points ({firstMismatch})"));
     }
 
+    /// <summary>
+    /// Judges a clear-all from the table read back after it. The clear used to
+    /// report "ok — cleared" from the driver's return code alone (F-06, F-43,
+    /// F-57), so a driver that accepted the write and kept the offsets would
+    /// have been reported as cleared — the exact failure the per-point readback
+    /// exists to catch.
+    ///
+    /// What "cleared" means is measured, not assumed (RTX 5090, driver 616.56):
+    /// the table read back uniform at the global core offset (+100 MHz in that
+    /// test), i.e. the clear removed per-point shape and left the global offset
+    /// in place. So success is "no per-point shape left"; the uniform value is
+    /// reported, and if it disagrees with the core offset the driver reports,
+    /// that is said too rather than guessed at — other drivers may differ.
+    /// </summary>
+    /// <param name="readStatus">Status of the readback after the clear.</param>
+    /// <param name="after">The table read back after the clear.</param>
+    /// <param name="globalCoreOffsetMHz">The core offset the driver reports now, when it would say.</param>
+    public static KnobResult VerifyClear(
+        NvapiStatus readStatus, IReadOnlyList<NvapiGpu.VfpTablePoint> after, int? globalCoreOffsetMHz)
+    {
+        const string knob = "V/F points";
+        if (readStatus != NvapiStatus.Ok)
+        {
+            return KnobResult.Ok(knob, $"cleared by the driver — not verified (the table did not read back: {readStatus})");
+        }
+
+        if (after.Count == 0)
+        {
+            return KnobResult.Ok(knob, "cleared by the driver — not verified (the table read back with no live points)");
+        }
+
+        if (HasPerPointShape(after))
+        {
+            // Name the dominant value and how many points stand out from it.
+            int common = after.GroupBy(p => p.OffsetMHz).OrderByDescending(g => g.Count()).First().Key;
+            int differing = after.Count(p => p.OffsetMHz != common);
+            return KnobResult.Fail(knob, FormattableString.Invariant(
+                $"the driver accepted the clear, but per-point offsets are still in force: {differing} of {after.Count} points differ from the {common:+0;-0;0} MHz the rest read"));
+        }
+
+        int uniform = after[0].OffsetMHz;
+        if (globalCoreOffsetMHz is not int global)
+        {
+            return KnobResult.Ok(knob, FormattableString.Invariant(
+                $"cleared (verified: no per-point offsets left; every point reads {uniform:+0;-0;0} MHz)"));
+        }
+
+        if (uniform == global)
+        {
+            return KnobResult.Ok(knob, uniform == 0
+                ? "cleared (verified: every point reads 0 MHz)"
+                : FormattableString.Invariant(
+                    $"cleared (verified: no per-point offsets left; every point reads the {uniform:+0;-0} MHz global core offset, which the clear left in place)"));
+        }
+
+        // Shape is gone, which is what was asked; the global offset no longer
+        // lines up with the table. Not a failed clear — but not something to
+        // stay quiet about either, since it changes what the card runs.
+        return KnobResult.Ok(knob, FormattableString.Invariant(
+            $"cleared (verified: no per-point offsets left), but every point reads {uniform:+0;-0;0} MHz while the driver reports a {global:+0;-0;0} MHz core offset — check the core offset (Tuning page, or `afterglow-cli get`)"));
+    }
+
     /// <param name="PointsFlattened">Higher-voltage points capped to the target.</param>
     /// <param name="LowerPointsCapped">
     /// Lower-voltage points whose stock clock already exceeded the target and
