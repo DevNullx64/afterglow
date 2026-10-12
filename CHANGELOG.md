@@ -5,10 +5,13 @@
 ### Performance — measured, not estimated ([docs/performance.md](docs/performance.md))
 
 - Resident in the tray (the logon default), against 1.2.0-beta.4 on the RTX 5090
-  test machine: working set 286 → 137 MiB, private memory 186 → 121 MiB, CPU
-  0.65 → 0.46 % of one core, managed allocation −45 %; minimized: allocation
-  −92 %, working set −55 %; window shown 805 → 548 ms after launch; CLI
-  171 → 124 ms; portable download 104 → 62 MB
+  test machine: working set 295 → 131 MiB and private memory 199 → 116 MiB at
+  steady state, managed allocation −45 %, 11 threads instead of 17; minimized:
+  allocation −92 %, working set −55 %; window shown 805 → 548 ms after launch;
+  CLI 171 → 124 ms; portable download 104 → 62 MB. Steady-state CPU is ~0.3 % of
+  one core before and after — it is the driver's time for the per-second
+  sensor poll, which every hidden feature (fan curve, flight recorder, alerts)
+  depends on
 - Pages only do display work while you can see them: hidden in the tray or
   minimized, no page formats readouts, copies graph history or redraws, and
   opening a page catches up at once. The dashboard copies the last 600 samples

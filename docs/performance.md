@@ -140,4 +140,23 @@ driver time.
   120 s that is ±0.013 percentage points per reading, plus run-to-run variance of about
   ±0.1 pp seen above.
 
-<!-- LONG -->
+### True steady state (one run each; 5 min warm-up, 5 min window, no counters attached)
+
+The 90 s / 120 s runs above still include the tail of tiered JIT compilation and the
+dotnet-counters session's own overhead. Waiting five minutes and measuring five without
+counters gives the figure that matters for an app that stays resident for days:
+
+| Tray | Before | After |
+|---|---:|---:|
+| CPU, % of one core | 0.339 | 0.318 |
+| Working set, MiB | 295 | 131 |
+| Private, MiB | 199 | 116 |
+| Threads | 17 | 11 |
+| CPU in the first 5 minutes, ms | 2,031 | 1,531 |
+
+**Steady-state CPU did not meaningfully change** — it is dominated by the driver calls of
+the one-per-second sensor poll (~1.6 ms of driver time per poll on this card), which this
+work deliberately left alone: every sensor feeds something that runs while hidden (fan
+curve, flight recorder, automation, alerts, the history behind the graphs). The 0.65 →
+0.46 % drop in the shorter runs is mostly less work during the JIT tail. What did change
+for good: memory (−56 % working set, −42 % private), threads, and startup/warm-up CPU.

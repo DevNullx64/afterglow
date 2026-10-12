@@ -43,8 +43,8 @@ Afterglow is a from-scratch, MIT-licensed answer:
   driver getter, so Afterglow tracks it and says so); and anything a GPU generation doesn't
   support says so instead of showing a fake number.
 - **Light when it's out of the way.** Resident in the tray, polling every second, it
-  measured ~137 MiB working set and under half a percent of one CPU core on the RTX 5090
-  test machine; pages stop drawing the moment you can't see them. Method, numbers and their
+  measured ~131 MiB working set and about 0.3 % of one CPU core (driver time for the sensor
+  poll) on the RTX 5090 test machine; pages stop drawing the moment you can't see them. Method, numbers and their
   limits: [docs/performance.md](docs/performance.md).
 
 ## Features
