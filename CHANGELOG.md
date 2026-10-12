@@ -209,8 +209,8 @@ pass and a redesign of every page.
 
 - C# 14 partial properties for all 166 view-model properties
   (CommunityToolkit.Mvvm 8.4), `System.Threading.Lock` for every private lock,
-  central package management, xUnit v3 on Microsoft.Testing.Platform, 369 tests
-  (from 140)
+  central package management, xUnit v3 on Microsoft.Testing.Platform; 555 tests
+  with the Arc line merged (140 in 1.2.0-beta.4)
 - `tools/measure-perf.ps1` and `tools/measure-startup.ps1` reproduce the numbers
   in docs/performance.md
 

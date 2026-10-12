@@ -160,3 +160,25 @@ work deliberately left alone: every sensor feeds something that runs while hidde
 curve, flight recorder, automation, alerts, the history behind the graphs). The 0.65 →
 0.46 % drop in the shorter runs is mostly less work during the JIT tail. What did change
 for good: memory (−56 % working set, −42 % private), threads, and startup/warm-up CPU.
+
+### After merging the Intel Arc line (A/B, same session)
+
+1.5 also carries the Intel Arc support from the 1.3 betas, which probes for Intel's
+IGCL and Level Zero libraries at startup. To check that cost, the last pre-merge build
+(57bf44f) and the merged release build (3792cd4) were measured back to back on the RTX 5090
+machine, which has no Intel GPU: two alternating tray runs each (90 s warm-up, 120 s
+window), then 11 launches each for startup.
+
+| | Pre-merge | Merged |
+|---|---:|---:|
+| Tray working set, MiB (two runs) | 136.1 · 134.1 | 134.2 · 136.6 |
+| Tray private, MiB | 119.5 · 117.2 | 117.3 · 120.4 |
+| Tray allocation, KiB/s | 26.8 · 26.8 | 26.8 · 26.8 |
+| Tray CPU, % of one core | 0.677 · 0.326 | 0.625 · 0.352 |
+| GUI launch → window shown, median ms | 540 | 545 |
+| CLI `get --json` launch → exit, median ms | 114 | 122 |
+
+Memory and allocation are unchanged. CPU moved by a factor of two between runs of the
+*same* build (other activity on the machine), so the merge's effect on it is below what
+these runs can resolve. Startup costs a few milliseconds more, within the spread of the
+individual launches; the published 548 ms and 124 ms still describe the release.
