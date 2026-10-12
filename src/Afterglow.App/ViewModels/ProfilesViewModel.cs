@@ -19,11 +19,11 @@ public partial class ProfilesViewModel : ObservableObject
     public ObservableCollection<GameRule> GameRules { get; } = [];
 
     [ObservableProperty]
-    private string _newRuleExe = string.Empty;
+    public partial string NewRuleExe { get; set; } = string.Empty;
 
-    [ObservableProperty] private string _newRuleCapFps = string.Empty;
-    [ObservableProperty] private int _newRuleVsyncIndex;
-    [ObservableProperty] private bool _newRuleLowLatency;
+    [ObservableProperty] public partial string NewRuleCapFps { get; set; } = string.Empty;
+    [ObservableProperty] public partial int NewRuleVsyncIndex { get; set; }
+    [ObservableProperty] public partial bool NewRuleLowLatency { get; set; }
 
     private Core.Interop.Nvapi.DrsApi? _drs;
     private bool _drsTried;
@@ -53,31 +53,31 @@ public partial class ProfilesViewModel : ObservableObject
     };
 
     [ObservableProperty]
-    private GameRule? _selectedRule;
+    public partial GameRule? SelectedRule { get; set; }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ApplySelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(LoadIntoTuningCommand))]
     [NotifyCanExecuteChangedFor(nameof(MarkStableCommand))]
-    private TuningProfile? _selected;
+    public partial TuningProfile? Selected { get; set; }
 
     [ObservableProperty]
-    private string _newProfileName = string.Empty;
+    public partial string NewProfileName { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string _statusText = string.Empty;
+    public partial string StatusText { get; set; } = string.Empty;
 
     private ProfileCertifier? _certifier;
 
-    [ObservableProperty] private bool _certifyRunning;
-    [ObservableProperty] private string _certifyPhaseText = string.Empty;
-    [ObservableProperty] private double _certifyProgress;
-    [ObservableProperty] private string _certifyLog = string.Empty;
+    [ObservableProperty] public partial bool CertifyRunning { get; set; }
+    [ObservableProperty] public partial string CertifyPhaseText { get; set; } = string.Empty;
+    [ObservableProperty] public partial double CertifyProgress { get; set; }
+    [ObservableProperty] public partial string CertifyLog { get; set; } = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CertifySecondsLabel))]
-    private double _certifySeconds = 90;
+    public partial double CertifySeconds { get; set; } = 90;
 
     public bool CanCertify => !_services.DemoMode && _services.IsElevated && _services.Gpus.Count > 0;
 

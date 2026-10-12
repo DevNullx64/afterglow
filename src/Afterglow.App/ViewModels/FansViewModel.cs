@@ -14,39 +14,39 @@ public partial class FansViewModel : ObservableObject, ILivePage
     private FanControlService? _fanControl;
 
     [ObservableProperty]
-    private int _modeIndex; // 0 auto, 1 fixed, 2 curve
+    public partial int ModeIndex { get; set; } // 0 auto, 1 fixed, 2 curve
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(FixedDutyLabel))]
-    private double _fixedDuty = 50;
+    public partial double FixedDuty { get; set; } = 50;
 
     [ObservableProperty]
-    private string _statusText = string.Empty;
+    public partial string StatusText { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string _liveText = "—";
+    public partial string LiveText { get; set; } = "—";
 
     [ObservableProperty]
-    private double _liveTemp;
+    public partial double LiveTemp { get; set; }
 
     [ObservableProperty]
-    private double _liveDuty;
+    public partial double LiveDuty { get; set; }
 
     // Curve settings (bound to the editor + parameter controls)
     [ObservableProperty]
-    private FanCurveConfig _curve = new();
+    public partial FanCurveConfig Curve { get; set; } = new();
 
     [ObservableProperty]
-    private int _tempSourceIndex;
+    public partial int TempSourceIndex { get; set; }
 
     [ObservableProperty]
-    private double _hysteresis = 3;
+    public partial double Hysteresis { get; set; } = 3;
 
     [ObservableProperty]
-    private bool _zeroRpmEnabled = true;
+    public partial bool ZeroRpmEnabled { get; set; } = true;
 
     [ObservableProperty]
-    private double _zeroRpmBelow = 45;
+    public partial double ZeroRpmBelow { get; set; } = 45;
 
     public string FixedDutyLabel => $"{FixedDuty:F0}%";
 

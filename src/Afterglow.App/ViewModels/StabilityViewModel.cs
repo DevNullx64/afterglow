@@ -19,15 +19,15 @@ public partial class StabilityViewModel : ObservableObject, IDisposable, ILivePa
     /// <summary>Outcome of <see cref="StopForShutdown"/>, once it has run.</summary>
     private bool? _shutdownSettled;
 
-    [ObservableProperty] private bool _stressRunning;
-    [ObservableProperty] private string _stressStatusText = "Idle. The burn test loads the GPU with a deterministic compute workload and verifies every result bit-for-bit.";
-    [ObservableProperty] private bool _stressFailed;
-    [ObservableProperty] private string _stressRateText = string.Empty;
-    [ObservableProperty] private string _stressElapsedText = string.Empty;
-    [ObservableProperty] private double _intensity = 4096;
+    [ObservableProperty] public partial bool StressRunning { get; set; }
+    [ObservableProperty] public partial string StressStatusText { get; set; } = "Idle. The burn test loads the GPU with a deterministic compute workload and verifies every result bit-for-bit.";
+    [ObservableProperty] public partial bool StressFailed { get; set; }
+    [ObservableProperty] public partial string StressRateText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string StressElapsedText { get; set; } = string.Empty;
+    [ObservableProperty] public partial double Intensity { get; set; } = 4096;
 
     /// <summary>0 = sustained burn, 1 = transition cycling, 2 = boost excursions.</summary>
-    [ObservableProperty] private int _patternIndex;
+    [ObservableProperty] public partial int PatternIndex { get; set; }
 
     public string PatternDescription => PatternIndex switch
     {
@@ -44,12 +44,12 @@ public partial class StabilityViewModel : ObservableObject, IDisposable, ILivePa
 
     private VramTest? _vram;
 
-    [ObservableProperty] private bool _vramRunning;
-    [ObservableProperty] private bool _vramFailed;
-    [ObservableProperty] private string _vramStatusText =
+    [ObservableProperty] public partial bool VramRunning { get; set; }
+    [ObservableProperty] public partial bool VramFailed { get; set; }
+    [ObservableProperty] public partial string VramStatusText { get; set; } =
         "Idle. Fills as much VRAM as the OS safely allows with a deterministic pattern and verifies " +
         "every element on the GPU; alternate rounds invert the pattern so every bit is exercised both ways.";
-    [ObservableProperty] private string _vramStatsText = string.Empty;
+    [ObservableProperty] public partial string VramStatsText { get; set; } = string.Empty;
 
     [RelayCommand]
     private void ToggleVram()
@@ -108,13 +108,13 @@ public partial class StabilityViewModel : ObservableObject, IDisposable, ILivePa
         }
     }
 
-    [ObservableProperty] private bool _stepperRunning;
-    [ObservableProperty] private string _stepperPhaseText = string.Empty;
-    [ObservableProperty] private double _stepperProgress;
-    [ObservableProperty] private string _stepperLog = string.Empty;
-    [ObservableProperty] private double _stepMHz = 30;
-    [ObservableProperty] private double _secondsPerStep = 60;
-    [ObservableProperty] private double _maxOffset = 300;
+    [ObservableProperty] public partial bool StepperRunning { get; set; }
+    [ObservableProperty] public partial string StepperPhaseText { get; set; } = string.Empty;
+    [ObservableProperty] public partial double StepperProgress { get; set; }
+    [ObservableProperty] public partial string StepperLog { get; set; } = string.Empty;
+    [ObservableProperty] public partial double StepMHz { get; set; } = 30;
+    [ObservableProperty] public partial double SecondsPerStep { get; set; } = 60;
+    [ObservableProperty] public partial double MaxOffset { get; set; } = 300;
 
     public bool CanStep => !_services.DemoMode && _services.IsElevated && _gpu is not null;
 
@@ -125,7 +125,7 @@ public partial class StabilityViewModel : ObservableObject, IDisposable, ILivePa
     public string IntensityLabel => $"{Intensity:F0} iterations/dispatch";
 
     [ObservableProperty]
-    private string _liveStatsText = string.Empty;
+    public partial string LiveStatsText { get; set; } = string.Empty;
 
     public bool HasCrashReport => _services.LastCrashReport is not null;
 

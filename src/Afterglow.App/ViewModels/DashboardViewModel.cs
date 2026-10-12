@@ -34,58 +34,58 @@ public partial class DashboardViewModel : ObservableObject, ILivePage
     }
 
     // Hero values
-    [ObservableProperty] private string _coreClockText = "—";
-    [ObservableProperty] private string _memClockText = "—";
-    [ObservableProperty] private string _tempText = "—";
-    [ObservableProperty] private string _hotSpotText = "—";
-    [ObservableProperty] private string _memJunctionText = "—";
-    [ObservableProperty] private string _powerText = "—";
-    [ObservableProperty] private string _powerLimitText = string.Empty;
-    [ObservableProperty] private string _utilText = "—";
-    [ObservableProperty] private string _vramText = "—";
-    [ObservableProperty] private double _vramFraction;
-    [ObservableProperty] private string _fanText = "—";
-    [ObservableProperty] private string _fanRpmText = string.Empty;
-    [ObservableProperty] private string _voltageText = "—";
-    [ObservableProperty] private string _perfStateText = string.Empty;
-    [ObservableProperty] private string _throttleMarginText = string.Empty;
-    [ObservableProperty] private string _energyText = string.Empty;
+    [ObservableProperty] public partial string CoreClockText { get; set; } = "—";
+    [ObservableProperty] public partial string MemClockText { get; set; } = "—";
+    [ObservableProperty] public partial string TempText { get; set; } = "—";
+    [ObservableProperty] public partial string HotSpotText { get; set; } = "—";
+    [ObservableProperty] public partial string MemJunctionText { get; set; } = "—";
+    [ObservableProperty] public partial string PowerText { get; set; } = "—";
+    [ObservableProperty] public partial string PowerLimitText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string UtilText { get; set; } = "—";
+    [ObservableProperty] public partial string VramText { get; set; } = "—";
+    [ObservableProperty] public partial double VramFraction { get; set; }
+    [ObservableProperty] public partial string FanText { get; set; } = "—";
+    [ObservableProperty] public partial string FanRpmText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string VoltageText { get; set; } = "—";
+    [ObservableProperty] public partial string PerfStateText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string ThrottleMarginText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string EnergyText { get; set; } = string.Empty;
 
     // FPS strip
-    [ObservableProperty] private bool _hasFps;
-    [ObservableProperty] private string _fpsAppText = string.Empty;
-    [ObservableProperty] private string _fpsText = "—";
-    [ObservableProperty] private string _fpsLowsText = string.Empty;
-    [ObservableProperty] private IReadOnlyList<double>? _frametimeSeries;
+    [ObservableProperty] public partial bool HasFps { get; set; }
+    [ObservableProperty] public partial string FpsAppText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string FpsText { get; set; } = "—";
+    [ObservableProperty] public partial string FpsLowsText { get; set; } = string.Empty;
+    [ObservableProperty] public partial IReadOnlyList<double>? FrametimeSeries { get; set; }
 
     // Graph series
-    [ObservableProperty] private IReadOnlyList<double>? _coreClockSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _tempSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _hotSpotSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _memJunctionSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _powerSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _utilSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _vramSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _fanSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _voltageSeries;
+    [ObservableProperty] public partial IReadOnlyList<double>? CoreClockSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? TempSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? HotSpotSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? MemJunctionSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? PowerSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? UtilSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? VramSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? FanSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? VoltageSeries { get; set; }
 
     /// <summary>Timestamps for the telemetry series above (all share the snapshot ring).</summary>
-    [ObservableProperty] private IReadOnlyList<DateTimeOffset>? _seriesTimes;
+    [ObservableProperty] public partial IReadOnlyList<DateTimeOffset>? SeriesTimes { get; set; }
 
     // Expanded tile (click a hero card to open its full 10-minute graph)
-    [ObservableProperty] private string? _expandedMetric;
-    [ObservableProperty] private string _expandedTitle = string.Empty;
-    [ObservableProperty] private string _expandedUnit = string.Empty;
-    [ObservableProperty] private string _expandedLabel = string.Empty;
-    [ObservableProperty] private string _expandedLabel2 = string.Empty;
-    [ObservableProperty] private IReadOnlyList<double>? _expandedSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _expandedSeries2;
-    [ObservableProperty] private IReadOnlyList<DateTimeOffset>? _expandedTimes;
-    [ObservableProperty] private System.Windows.Media.Brush? _expandedStroke;
-    [ObservableProperty] private System.Windows.Media.Brush? _expandedStroke2;
-    [ObservableProperty] private double _expandedFixedMin = double.NaN;
-    [ObservableProperty] private double _expandedFixedMax = double.NaN;
-    [ObservableProperty] private int _expandedCapacity = 600;
+    [ObservableProperty] public partial string? ExpandedMetric { get; set; }
+    [ObservableProperty] public partial string ExpandedTitle { get; set; } = string.Empty;
+    [ObservableProperty] public partial string ExpandedUnit { get; set; } = string.Empty;
+    [ObservableProperty] public partial string ExpandedLabel { get; set; } = string.Empty;
+    [ObservableProperty] public partial string ExpandedLabel2 { get; set; } = string.Empty;
+    [ObservableProperty] public partial IReadOnlyList<double>? ExpandedSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? ExpandedSeries2 { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<DateTimeOffset>? ExpandedTimes { get; set; }
+    [ObservableProperty] public partial System.Windows.Media.Brush? ExpandedStroke { get; set; }
+    [ObservableProperty] public partial System.Windows.Media.Brush? ExpandedStroke2 { get; set; }
+    [ObservableProperty] public partial double ExpandedFixedMin { get; set; } = double.NaN;
+    [ObservableProperty] public partial double ExpandedFixedMax { get; set; } = double.NaN;
+    [ObservableProperty] public partial int ExpandedCapacity { get; set; } = 600;
 
     public bool IsExpanded => ExpandedMetric is not null;
 

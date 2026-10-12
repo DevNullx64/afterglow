@@ -13,21 +13,21 @@ public partial class MetricsViewModel : ObservableObject
     private readonly DispatcherTimer _refresh;
     private readonly DispatcherTimer _foregroundPoll;
 
-    [ObservableProperty] private bool _captureRunning;
-    [ObservableProperty] private string _captureStatusText;
-    [ObservableProperty] private bool _presentMonMissing;
+    [ObservableProperty] public partial bool CaptureRunning { get; set; }
+    [ObservableProperty] public partial string CaptureStatusText { get; set; }
+    [ObservableProperty] public partial bool PresentMonMissing { get; set; }
 
-    [ObservableProperty] private string _appText = "No presenting app detected yet";
-    [ObservableProperty] private string _presentModeText = string.Empty;
-    [ObservableProperty] private string _avgFpsText = "—";
-    [ObservableProperty] private string _p1Text = "—";
-    [ObservableProperty] private string _p01Text = "—";
-    [ObservableProperty] private string _low1Text = "—";
-    [ObservableProperty] private string _low01Text = "—";
-    [ObservableProperty] private string _avgFrametimeText = "—";
-    [ObservableProperty] private string _maxFrametimeText = "—";
-    [ObservableProperty] private string _frameCountText = string.Empty;
-    [ObservableProperty] private IReadOnlyList<double>? _frametimeSeries;
+    [ObservableProperty] public partial string AppText { get; set; } = "No presenting app detected yet";
+    [ObservableProperty] public partial string PresentModeText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string AvgFpsText { get; set; } = "—";
+    [ObservableProperty] public partial string P1Text { get; set; } = "—";
+    [ObservableProperty] public partial string P01Text { get; set; } = "—";
+    [ObservableProperty] public partial string Low1Text { get; set; } = "—";
+    [ObservableProperty] public partial string Low01Text { get; set; } = "—";
+    [ObservableProperty] public partial string AvgFrametimeText { get; set; } = "—";
+    [ObservableProperty] public partial string MaxFrametimeText { get; set; } = "—";
+    [ObservableProperty] public partial string FrameCountText { get; set; } = string.Empty;
+    [ObservableProperty] public partial IReadOnlyList<double>? FrametimeSeries { get; set; }
 
     public string MethodNote { get; } =
         "Averages are harmonic (N·1000/Σft). P1/P0.1 are interpolated percentiles of the frametime " +
@@ -48,7 +48,7 @@ public partial class MetricsViewModel : ObservableObject
         "sessions to compare them. FPS numbers are the trailing 30 s window at capture end; power/temps are " +
         "averaged over the session.";
 
-    [ObservableProperty] private string _compareText = string.Empty;
+    [ObservableProperty] public partial string CompareText { get; set; } = string.Empty;
 
     public bool HasComparison => CompareText.Length > 0;
 
@@ -153,17 +153,12 @@ public partial class MetricsViewModel : ObservableObject
     public MetricsViewModel(AppServices services)
     {
         _services = services;
-        _presentMonMissing = !services.DemoMode && !File.Exists(PresentMonSession.DefaultExePath);
-        _captureStatusText = services.DemoMode
+        PresentMonMissing = !services.DemoMode && !File.Exists(PresentMonSession.DefaultExePath);
+        CaptureStatusText = services.DemoMode
             ? "Demo mode — the numbers below are synthetic, showing what live capture looks like."
-            : _presentMonMissing
+            : PresentMonMissing
                 ? $"PresentMon binary not found ({PresentMonSession.BundledExeName}). FPS capture is disabled — reinstall Afterglow or place Intel PresentMon under ThirdParty\\PresentMon."
                 : "Capture idle.";
-
-        if (services.DemoMode)
-        {
-            _captureRunning = true;
-        }
 
         _refresh = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _refresh.Tick += (_, _) => Refresh();
@@ -174,7 +169,12 @@ public partial class MetricsViewModel : ObservableObject
         _foregroundPoll.Tick += (_, _) =>
             _services.FrameMetrics.ForegroundProcessId = ForegroundProcess.GetForegroundProcessId();
 
-        UpdateCaptureTimers(_captureRunning);
+        // Last: CaptureRunning is a notifying property now, and its change hook
+        // starts the timers created just above.
+        if (services.DemoMode)
+        {
+            CaptureRunning = true;
+        }
     }
 
     partial void OnCaptureRunningChanged(bool value) => UpdateCaptureTimers(value);

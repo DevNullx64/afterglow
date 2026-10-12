@@ -35,24 +35,24 @@ public partial class MainViewModel : ObservableObject
     public SettingsViewModel Settings { get; }
 
     [ObservableProperty]
-    private ObservableObject _currentPage;
+    public partial ObservableObject CurrentPage { get; set; }
 
     [ObservableProperty]
-    private string _currentPageName = "dashboard";
+    public partial string CurrentPageName { get; set; } = "dashboard";
 
     [ObservableProperty]
-    private bool _showCrashBanner;
+    public partial bool ShowCrashBanner { get; set; }
 
     [ObservableProperty]
-    private string _crashBannerText = string.Empty;
+    public partial string CrashBannerText { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private bool _showForensicsBanner;
+    public partial bool ShowForensicsBanner { get; set; }
 
     [ObservableProperty]
-    private string _forensicsBannerText = string.Empty;
+    public partial string ForensicsBannerText { get; set; } = string.Empty;
 
-    [ObservableProperty] private string _gpuName = string.Empty;
+    [ObservableProperty] public partial string GpuName { get; set; } = string.Empty;
 
     public string DriverText { get; }
 
@@ -76,7 +76,7 @@ public partial class MainViewModel : ObservableObject
         DriverText = services.DemoMode ? "Synthetic demo data" : $"NVIDIA driver {services.DriverVersion}";
 
         GpuOptions = services.Gpus.Select(g => $"GPU {g.Index} — {g.Name}").ToArray();
-        _selectedGpuOption = 0;
+        SelectedGpuOption = 0;
 
         Dashboard = new DashboardViewModel(services);
         Tuning = new TuningViewModel(services);
@@ -87,7 +87,7 @@ public partial class MainViewModel : ObservableObject
         Profiles = new ProfilesViewModel(services, Tuning, Fans, p => ApplyProfileFull(p));
         Settings = new SettingsViewModel(services);
 
-        _currentPage = Dashboard;
+        CurrentPage = Dashboard;
         services.WindowVisibleChanged += _ => UpdateLivePages();
 
         CheckCrashRecovery();
@@ -196,7 +196,7 @@ public partial class MainViewModel : ObservableObject
 
     public bool HasMultipleGpus => _services.Gpus.Count > 1;
 
-    [ObservableProperty] private int _selectedGpuOption;
+    [ObservableProperty] public partial int SelectedGpuOption { get; set; }
 
     partial void OnSelectedGpuOptionChanged(int value)
     {

@@ -20,21 +20,21 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
     private Core.Tuning.VfCurveRecorder Recorder =>
         _gpu is { } gpu ? _services.VfCurveFor(gpu.Index) : _services.VfCurve;
 
-    [ObservableProperty] private IReadOnlyList<VfBin>? _curve;
-    [ObservableProperty] private long _peakSamples;
-    [ObservableProperty] private double _liveVoltage;
-    [ObservableProperty] private double _liveClock;
-    [ObservableProperty] private double _targetVoltage;
-    [ObservableProperty] private double _targetClock;
-    [ObservableProperty] private string _sampleText = string.Empty;
+    [ObservableProperty] public partial IReadOnlyList<VfBin>? Curve { get; set; }
+    [ObservableProperty] public partial long PeakSamples { get; set; }
+    [ObservableProperty] public partial double LiveVoltage { get; set; }
+    [ObservableProperty] public partial double LiveClock { get; set; }
+    [ObservableProperty] public partial double TargetVoltage { get; set; }
+    [ObservableProperty] public partial double TargetClock { get; set; }
+    [ObservableProperty] public partial string SampleText { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string _planText =
+    public partial string PlanText { get; set; } =
         "Click a point on the curve to target it. Afterglow computes the exact core offset and clock lock " +
         "that hold that clock at that voltage — pick a point up and to the left of the curve for an undervolt.";
-    [ObservableProperty] private bool _hasPlan;
-    [ObservableProperty] private string _applyResultText = string.Empty;
-    [ObservableProperty] private bool _lastApplyFailed;
+    [ObservableProperty] public partial bool HasPlan { get; set; }
+    [ObservableProperty] public partial string ApplyResultText { get; set; } = string.Empty;
+    [ObservableProperty] public partial bool LastApplyFailed { get; set; }
 
     private UndervoltPlan? _plan;
     private int _tick;
@@ -43,8 +43,8 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
     /// <summary>The card a running probe is bound to — captured at start, never re-read from _gpu.</summary>
     private GpuContext? _probeGpu;
 
-    [ObservableProperty] private bool _probeRunning;
-    [ObservableProperty] private string _probeStatusText = string.Empty;
+    [ObservableProperty] public partial bool ProbeRunning { get; set; }
+    [ObservableProperty] public partial string ProbeStatusText { get; set; } = string.Empty;
 
     public bool CanApply => _services.DemoMode || (_services.IsElevated && _gpu is not null);
 
@@ -117,12 +117,12 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
 
     private IReadOnlyList<Core.Interop.Nvapi.NvapiGpu.VfpTablePoint> _vfpPoints = [];
 
-    [ObservableProperty] private IReadOnlyList<VfBin>? _driverCurve;
-    [ObservableProperty] private double _vfpPointSlider;
-    [ObservableProperty] private string _vfpPointText = "—";
-    [ObservableProperty] private string _vfpOffsetText = "0";
-    [ObservableProperty] private string _vfpTargetClockText = string.Empty;
-    [ObservableProperty] private string _vfpStatusText = string.Empty;
+    [ObservableProperty] public partial IReadOnlyList<VfBin>? DriverCurve { get; set; }
+    [ObservableProperty] public partial double VfpPointSlider { get; set; }
+    [ObservableProperty] public partial string VfpPointText { get; set; } = "—";
+    [ObservableProperty] public partial string VfpOffsetText { get; set; } = "0";
+    [ObservableProperty] public partial string VfpTargetClockText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string VfpStatusText { get; set; } = string.Empty;
 
     public bool SupportsVfPoints => _gpu?.Tuner.Capabilities.SupportsVfPoints == true;
 

@@ -17,37 +17,37 @@ public partial class TuningViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CoreOffsetLabel))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
-    private double _coreOffset;
+    public partial double CoreOffset { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(MemOffsetLabel))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
-    private double _memOffset;
+    public partial double MemOffset { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PowerLimitLabel))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
-    private double _powerLimit;
+    public partial double PowerLimit { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(VoltageBoostLabel))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
-    private double _voltageBoost;
+    public partial double VoltageBoost { get; set; }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
-    private bool _lockEnabled;
+    public partial bool LockEnabled { get; set; }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(LockClockLabel))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
-    private double _lockClock = 2500;
+    public partial double LockClock { get; set; } = 2500;
 
     [ObservableProperty]
-    private string _applyResultText = string.Empty;
+    public partial string ApplyResultText { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private bool _lastApplyFailed;
+    public partial bool LastApplyFailed { get; set; }
 
     public string CoreOffsetLabel => $"{(CoreOffset >= 0 ? "+" : string.Empty)}{CoreOffset:F0} MHz";
 
