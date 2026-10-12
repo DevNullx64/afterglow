@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Afterglow.Core.Settings;
@@ -85,6 +85,7 @@ public partial class MainViewModel : ObservableObject
         Settings = new SettingsViewModel(services);
 
         _currentPage = Dashboard;
+        services.WindowVisibleChanged += _ => UpdateLivePages();
 
         CheckCrashRecovery();
 
@@ -119,11 +120,18 @@ public partial class MainViewModel : ObservableObject
             Application.Current?.Dispatcher.BeginInvoke(() => OnGameExited(rule));
         services.TdrWatchdog.DriverResetDetected += description =>
             Application.Current?.Dispatcher.BeginInvoke(() => OnDriverReset(description));
-        // Alerts end in a WinForms NotifyIcon balloon, which is not
-        // thread-safe — marshal off the telemetry polling thread like every
-        // other cross-thread handler here.
+        // Decided on the telemetry thread (no dispatcher hop on a quiet tick);
+        // only a new crossing is marshalled, because the alert ends in a
+        // WinForms NotifyIcon balloon, which is not thread-safe.
         services.Telemetry.SnapshotTaken += snapshot =>
-            Application.Current?.Dispatcher.BeginInvoke(() => CheckAlerts(snapshot));
+        {
+            var settings = _services.Settings;
+            var raised = _temperatureAlerts.Evaluate(snapshot, settings.AlertGpuTempC, settings.AlertMemJunctionTempC);
+            if (raised.Count > 0)
+            {
+                Application.Current?.Dispatcher.BeginInvoke(() => ShowAlerts(raised));
+            }
+        };
 
         // A failing fan command (lost elevation, driver refusal) must reach
         // the user, not just the log.
@@ -434,18 +442,25 @@ public partial class MainViewModel : ObservableObject
         Tuning.RefreshFromHardware();
     }
 
-    private void CheckAlerts(GpuSnapshot snapshot)
-    {
-        var settings = _services.Settings;
-        if (settings.AlertGpuTempC > 0 && snapshot.GpuTempC is uint temp && temp >= settings.AlertGpuTempC)
-        {
-            TrayAlert?.Invoke("GPU temperature alert", $"GPU core is at {temp}°C (alert set at {settings.AlertGpuTempC}°C).");
-        }
+    private readonly Core.Services.TemperatureAlertMonitor _temperatureAlerts = new();
 
-        if (settings.AlertMemJunctionTempC > 0 &&
-            snapshot.MemJunctionTempC is double mem && mem >= settings.AlertMemJunctionTempC)
+    private void ShowAlerts(IReadOnlyList<Core.Services.TemperatureAlert> raised)
+    {
+        foreach (var alert in raised)
         {
-            TrayAlert?.Invoke("Memory temperature alert", $"Memory junction is at {mem:F0}°C (alert set at {settings.AlertMemJunctionTempC}°C).");
+            string gpu = _services.Gpus.Count > 1 ? $"GPU {alert.DeviceIndex} " : "GPU ";
+            if (alert.Sensor == Core.Services.AlertSensor.Gpu)
+            {
+                TrayAlert?.Invoke(
+                    "GPU temperature alert",
+                    $"{gpu}core reached {alert.ValueC:F0}°C (alert set at {alert.ThresholdC}°C).");
+            }
+            else
+            {
+                TrayAlert?.Invoke(
+                    "Memory temperature alert",
+                    $"{gpu}memory junction reached {alert.ValueC:F0}°C (alert set at {alert.ThresholdC}°C).");
+            }
         }
     }
 
@@ -718,6 +733,32 @@ public partial class MainViewModel : ObservableObject
 
     [RelayCommand]
     private void DismissForensicsBanner() => ShowForensicsBanner = false;
+
+    partial void OnCurrentPageChanged(ObservableObject value) => UpdateLivePages();
+
+    /// <summary>
+    /// Exactly one page is live: the one on screen, and only while the window
+    /// is. Everything else skips its per-tick display work (see ILivePage).
+    /// </summary>
+    private void UpdateLivePages()
+    {
+        bool visible = _services.WindowVisible;
+        ObservableObject[] pages = [Dashboard, Tuning, Fans, Metrics, VfCurve, Stability, Profiles, Settings];
+
+        // Off before on, so a switch never has two pages drawing at once.
+        foreach (var page in pages)
+        {
+            if (page is ILivePage live && !(visible && ReferenceEquals(page, CurrentPage)))
+            {
+                live.IsLive = false;
+            }
+        }
+
+        if (visible && CurrentPage is ILivePage current)
+        {
+            current.IsLive = true;
+        }
+    }
 
     [RelayCommand]
     public void NavigateTo(string page)

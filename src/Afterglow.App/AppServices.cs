@@ -68,6 +68,28 @@ public sealed class AppServices : IDisposable
     /// <summary>Raised on the UI thread after the selection moved to another GPU.</summary>
     public event Action<GpuContext>? SelectedGpuChanged;
 
+    private bool _windowVisible;
+
+    /// <summary>
+    /// True while the main window is on screen (shown and not minimized). Pages
+    /// stop their per-tick display work while it is false — see ILivePage.
+    /// </summary>
+    public bool WindowVisible => _windowVisible;
+
+    /// <summary>Raised on the UI thread when <see cref="WindowVisible"/> flips.</summary>
+    public event Action<bool>? WindowVisibleChanged;
+
+    public void SetWindowVisible(bool visible)
+    {
+        if (visible == _windowVisible)
+        {
+            return;
+        }
+
+        _windowVisible = visible;
+        WindowVisibleChanged?.Invoke(visible);
+    }
+
     public void SelectGpu(uint deviceIndex)
     {
         if (deviceIndex == _selectedGpuIndex || Gpus.All(g => g.Index != deviceIndex))
@@ -77,6 +99,18 @@ public sealed class AppServices : IDisposable
 
         _selectedGpuIndex = deviceIndex;
         SelectedGpuChanged?.Invoke(SelectedGpu!);
+    }
+
+    /// <summary>
+    /// Turns the CSV-only sensors (video clock, encoder/decoder, PCIe) on while a
+    /// CSV log is recording and off otherwise; nothing else in the app shows them.
+    /// </summary>
+    public void SetExtendedMetrics(bool enabled)
+    {
+        foreach (var gpu in Gpus)
+        {
+            gpu.Poller.ExtendedMetrics = enabled;
+        }
     }
 
     /// <summary>Settings key for one GPU's fan configuration.</summary>
@@ -185,6 +219,12 @@ public sealed class AppServices : IDisposable
         foreach (var gpu in manager.Gpus)
         {
             fanControl[gpu.Index] = new FanControlService(gpu.Tuner);
+        }
+
+        // The GUI shows none of the CSV-only sensors; CSV logging turns them on.
+        foreach (var gpu in manager.Gpus)
+        {
+            gpu.Poller.ExtendedMetrics = false;
         }
 
         var telemetry = new TelemetryService(
@@ -337,6 +377,10 @@ public sealed class AppServices : IDisposable
 
         GameWatcher.Dispose();
         TdrWatchdog.Dispose();
+
+        // Stop the polling thread before releasing the fans: a tick arriving
+        // after the release would run the curve and take them back.
+        Telemetry.Dispose();
         foreach (var fans in FanControl.Values)
         {
             fans.Dispose();
@@ -344,7 +388,6 @@ public sealed class AppServices : IDisposable
 
         FrameMetrics.Dispose();
         ActiveCsvLogger?.Dispose();
-        Telemetry.Dispose();
         foreach (var flightRecorder in Flights.Values)
         {
             flightRecorder.Dispose();

@@ -180,14 +180,38 @@ public partial class MetricsViewModel : ObservableObject
 
         _refresh = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _refresh.Tick += (_, _) => Refresh();
-        _refresh.Start();
 
         LoadSessionHistory();
 
         _foregroundPoll = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _foregroundPoll.Tick += (_, _) =>
             _services.FrameMetrics.ForegroundProcessId = ForegroundProcess.GetForegroundProcessId();
-        _foregroundPoll.Start();
+
+        UpdateCaptureTimers(_captureRunning);
+    }
+
+    partial void OnCaptureRunningChanged(bool value) => UpdateCaptureTimers(value);
+
+    /// <summary>
+    /// Both timers only mean something while frames are being captured (the
+    /// foreground app picks the capture target); without a capture they used to
+    /// wake the UI thread three times every two seconds, for days, in the tray.
+    /// They keep running while capturing even when this page is hidden — the
+    /// dashboard tile, the overlay and the session record read the same stats.
+    /// </summary>
+    private void UpdateCaptureTimers(bool capturing)
+    {
+        if (capturing)
+        {
+            _services.FrameMetrics.ForegroundProcessId = ForegroundProcess.GetForegroundProcessId();
+            _refresh.Start();
+            _foregroundPoll.Start();
+        }
+        else
+        {
+            _refresh.Stop();
+            _foregroundPoll.Stop();
+        }
     }
 
     [RelayCommand]

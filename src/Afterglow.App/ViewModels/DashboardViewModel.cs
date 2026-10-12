@@ -1,14 +1,37 @@
-using System.Windows;
+﻿using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Afterglow.Core.Interop.Nvml;
 using Afterglow.Core.Telemetry;
 
 namespace Afterglow.App.ViewModels;
 
-public partial class DashboardViewModel : ObservableObject
+public partial class DashboardViewModel : ObservableObject, ILivePage
 {
+    /// <summary>The longest window any dashboard graph draws (the 10-minute graphs at 1 s polling).</summary>
+    private const int SeriesCapacity = 600;
+
     private readonly AppServices _services;
     private uint _deviceIndex;
+    private volatile bool _isLive;
+
+    /// <inheritdoc />
+    public bool IsLive
+    {
+        get => _isLive;
+        set
+        {
+            if (_isLive == value)
+            {
+                return;
+            }
+
+            _isLive = value;
+            if (value)
+            {
+                RefreshFromHistory();
+            }
+        }
+    }
 
     // Hero values
     [ObservableProperty] private string _coreClockText = "—";
@@ -184,13 +207,26 @@ public partial class DashboardViewModel : ObservableObject
     public void RebindGpu()
     {
         _deviceIndex = !_services.DemoMode && _services.SelectedGpu is { } gpu ? gpu.Index : 0;
-        UpdateSeries();
-        RefreshExpanded();
+        if (_isLive)
+        {
+            RefreshFromHistory();
+        }
+    }
+
+    /// <summary>Catch up at once (page opened, window restored, GPU switched) instead of waiting a tick.</summary>
+    private void RefreshFromHistory()
+    {
+        if (_services.Telemetry.TryHistoryFor(_deviceIndex)?.Latest is { } latest)
+        {
+            Update(latest);
+        }
     }
 
     private void OnSnapshot(GpuSnapshot snapshot)
     {
-        if (snapshot.DeviceIndex != _deviceIndex)
+        // Hidden in the tray or on another page: nothing to draw, so no
+        // dispatcher hop, no string formatting, no series copies.
+        if (!_isLive || snapshot.DeviceIndex != _deviceIndex)
         {
             return;
         }
@@ -245,7 +281,7 @@ public partial class DashboardViewModel : ObservableObject
 
     private void UpdateSeries()
     {
-        var history = _services.Telemetry.HistoryFor(_deviceIndex).GetAll();
+        var history = _services.Telemetry.TryHistoryFor(_deviceIndex)?.GetLatest(SeriesCapacity) ?? [];
         if (history.Length == 0)
         {
             return;

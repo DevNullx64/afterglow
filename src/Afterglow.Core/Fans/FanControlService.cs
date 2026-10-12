@@ -296,6 +296,12 @@ public sealed class FanControlService : IDisposable
             _weControlFans = false;
             _lastCommandedDuty = -1;
             _generation++;
+
+            // Disarm the curve too: a snapshot still in flight on the telemetry
+            // thread would otherwise re-pin the fans right after the release
+            // below, and nothing would ever hand them back.
+            _mode = FanControlMode.Auto;
+            _evaluator = null;
         }
 
         if (!release)

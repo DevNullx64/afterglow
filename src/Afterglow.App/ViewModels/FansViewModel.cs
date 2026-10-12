@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Afterglow.Core.Fans;
@@ -7,7 +7,7 @@ using Afterglow.Core.Telemetry;
 
 namespace Afterglow.App.ViewModels;
 
-public partial class FansViewModel : ObservableObject
+public partial class FansViewModel : ObservableObject, ILivePage
 {
     private readonly AppServices _services;
     private GpuContext? _gpu;
@@ -191,25 +191,51 @@ public partial class FansViewModel : ObservableObject
         _loadingSettings = false;
     }
 
+    private volatile bool _isLive;
+
+    /// <inheritdoc />
+    public bool IsLive
+    {
+        get => _isLive;
+        set
+        {
+            if (_isLive == value)
+            {
+                return;
+            }
+
+            _isLive = value;
+            if (value && _services.Telemetry.TryHistoryFor(LiveDeviceIndex)?.Latest is { } latest)
+            {
+                ApplySnapshot(latest);
+            }
+        }
+    }
+
+    private uint LiveDeviceIndex => _gpu?.Index ?? 0;
+
     private void OnSnapshot(GpuSnapshot snapshot)
     {
-        if (_gpu is not null && snapshot.DeviceIndex != _gpu.Index)
+        // Display only — the fan curve itself runs in FanControlService on every tick.
+        if (!_isLive || (_gpu is not null && snapshot.DeviceIndex != _gpu.Index))
         {
             return;
         }
 
-        Application.Current?.Dispatcher.BeginInvoke(() =>
-        {
-            var fans = snapshot.FanPercents;
-            var rpms = snapshot.FanRpms;
-            LiveText = fans is { Count: > 0 }
-                ? string.Join("   ", fans.Select((f, i) =>
-                    $"Fan {i + 1}: {f}%{(rpms is not null && i < rpms.Count ? $" ({rpms[i]} RPM)" : string.Empty)}"))
-                : "—";
+        Application.Current?.Dispatcher.BeginInvoke(() => ApplySnapshot(snapshot));
+    }
 
-            LiveTemp = SelectTemp(snapshot) ?? 0;
-            LiveDuty = snapshot.MaxFanPercent ?? 0;
-        });
+    private void ApplySnapshot(GpuSnapshot snapshot)
+    {
+        var fans = snapshot.FanPercents;
+        var rpms = snapshot.FanRpms;
+        LiveText = fans is { Count: > 0 }
+            ? string.Join("   ", fans.Select((f, i) =>
+                $"Fan {i + 1}: {f}%{(rpms is not null && i < rpms.Count ? $" ({rpms[i]} RPM)" : string.Empty)}"))
+            : "—";
+
+        LiveTemp = SelectTemp(snapshot) ?? 0;
+        LiveDuty = snapshot.MaxFanPercent ?? 0;
     }
 
     private double? SelectTemp(GpuSnapshot s) => (FanTempSource)TempSourceIndex switch

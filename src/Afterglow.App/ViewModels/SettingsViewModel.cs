@@ -160,6 +160,9 @@ public partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        // The user answered before the background query did; theirs wins.
+        _startupTaskQueryPending = false;
+
         if (!_services.IsElevated)
         {
             StartWithWindowsNote = "Changing autostart needs the elevated app — restart Afterglow and accept the UAC prompt first.";
@@ -224,19 +227,7 @@ public partial class SettingsViewModel : ObservableObject
     {
         _loading = true;
         PollingIntervalMs = s.PollingIntervalMs;
-        StartWithWindows = Services.StartupTaskService.IsEnabled();
-
-        // A task registered before the location check existed (or from a copy
-        // that has since moved) keeps running elevated at every logon. Say so:
-        // the toggle only reports that a task exists, not that it is safe.
-        if (StartWithWindows && Environment.ProcessPath is { } exe &&
-            Core.Security.TrustedInstallLocation.Check(exe) is { IsTrusted: false } untrusted)
-        {
-            StartWithWindowsNote =
-                $"This startup task runs Afterglow elevated with no prompt from a location that is not " +
-                $"administrator-only: {untrusted.Reason}. Anything able to replace the exe would inherit those " +
-                "rights at logon. Turn this off, or reinstall into Program Files with the setup .exe.";
-        }
+        _ = LoadStartupTaskStateAsync();
         AutomationRules.Clear();
         foreach (var rule in s.AutomationRules)
         {
@@ -263,6 +254,48 @@ public partial class SettingsViewModel : ObservableObject
             : "(none)";
         _loading = false;
     }
+
+    /// <summary>
+    /// Whether the logon task exists takes a schtasks.exe round trip, and the
+    /// location check walks the ACL of every folder above the exe — together a
+    /// few hundred milliseconds that used to sit on the UI thread at every
+    /// launch, for a page that is rarely opened. Both now run in the
+    /// background; the toggle shows "off" until the answer arrives, and an
+    /// answer that lands after the user already flipped the toggle is dropped.
+    /// </summary>
+    private async Task LoadStartupTaskStateAsync()
+    {
+        _startupTaskQueryPending = true;
+        var (enabled, note) = await Task.Run(() =>
+        {
+            bool exists = Services.StartupTaskService.IsEnabled();
+
+            // A task registered before the location check existed (or from a copy
+            // that has since moved) keeps running elevated at every logon. Say so:
+            // the toggle only reports that a task exists, not that it is safe.
+            string? warning = exists && Environment.ProcessPath is { } exe &&
+                              Core.Security.TrustedInstallLocation.Check(exe) is { IsTrusted: false } untrusted
+                ? $"This startup task runs Afterglow elevated with no prompt from a location that is not " +
+                  $"administrator-only: {untrusted.Reason}. Anything able to replace the exe would inherit those " +
+                  "rights at logon. Turn this off, or reinstall into Program Files with the setup .exe."
+                : null;
+            return (exists, warning);
+        }).ConfigureAwait(true);
+
+        if (!_startupTaskQueryPending)
+        {
+            return;
+        }
+
+        _startupTaskQueryPending = false;
+        RevertStartWithWindows(enabled);
+        if (note is not null)
+        {
+            StartWithWindowsNote = note;
+        }
+    }
+
+    private bool _startupTaskQueryPending;
 
     private void Persist()
     {
@@ -366,12 +399,14 @@ public partial class SettingsViewModel : ObservableObject
             var logger = new CsvLogger();
             logger.Start();
             _services.ActiveCsvLogger = logger;
+            _services.SetExtendedMetrics(true);
             _services.Telemetry.SnapshotTaken += logger.Log;
             CsvStatusText = $"Logging to {logger.CurrentFile}";
         }
         else if (_services.ActiveCsvLogger is { } active)
         {
             _services.Telemetry.SnapshotTaken -= active.Log;
+            _services.SetExtendedMetrics(false);
             active.Dispose();
             _services.ActiveCsvLogger = null;
             CsvStatusText = "Logging stopped.";
@@ -384,7 +419,11 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             AppPaths.EnsureCreated();
-            _ = System.Diagnostics.Process.Start("explorer.exe", AppPaths.Root);
+            // Full path: this process is usually elevated, and a bare name is
+            // searched for in the app's own folder before System32.
+            _ = System.Diagnostics.Process.Start(
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
+                Core.CommandLine.Join([AppPaths.Root]));
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
         {

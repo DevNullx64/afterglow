@@ -37,9 +37,14 @@ public sealed class FlightSession
 
     public IReadOnlyList<string> Markers { get; private init; } = [];
 
+    /// <summary>True when the parsed lines include an "offsets" marker.</summary>
+    internal bool HasOffsetsMarker { get; private init; }
+
+    /// <summary>How much of a session's end the crash analysis reads (~10 hours at 1 s polling).</summary>
+    internal const int TailBytes = 4 * 1024 * 1024;
+
     public static FlightSession? Load(string path)
     {
-        string[] lines;
         try
         {
             if (!File.Exists(path))
@@ -47,7 +52,11 @@ public sealed class FlightSession
                 return null;
             }
 
-            lines = File.ReadAllLines(path);
+            // Only the end of a session says how it died. The full file is read
+            // only when its tail never names the applied offsets — a recording
+            // from before the recorder re-stated them per segment.
+            var tail = Parse(ReadTailLines(path, TailBytes, out bool truncated));
+            return truncated && !tail.HasOffsetsMarker ? Parse(File.ReadAllLines(path)) : tail;
         }
         catch (IOException)
         {
@@ -57,8 +66,72 @@ public sealed class FlightSession
         {
             return null;
         }
+    }
 
-        return Parse(lines);
+    /// <summary>
+    /// Cheap check for the normal case — the previous session ended on purpose:
+    /// reads the last few KB instead of parsing what can be days of recording.
+    /// False when unsure, so the caller falls back to the full analysis.
+    /// </summary>
+    public static bool EndedCleanly(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            var lines = ReadTailLines(path, 4096, out _);
+            for (int i = lines.Count - 1; i >= 0; i--)
+            {
+                if (!string.IsNullOrWhiteSpace(lines[i]))
+                {
+                    return IsCleanShutdownMarker(lines[i]);
+                }
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return false;
+    }
+
+    private static bool IsCleanShutdownMarker(string line)
+    {
+        int space = line.IndexOf(' ', StringComparison.Ordinal);
+        return line.StartsWith('#') && space >= 2 &&
+               long.TryParse(line.AsSpan(1, space - 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out _) &&
+               line.AsSpan(space + 1).TrimEnd().SequenceEqual("clean-shutdown");
+    }
+
+    /// <summary>
+    /// The complete lines in the last <paramref name="maxBytes"/> of a file. When
+    /// the read starts mid-file, the first (partial) line is dropped.
+    /// </summary>
+    private static List<string> ReadTailLines(string path, int maxBytes, out bool truncated)
+    {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        long start = Math.Max(0, stream.Length - maxBytes);
+        truncated = start > 0;
+        stream.Seek(start, SeekOrigin.Begin);
+        using var reader = new StreamReader(stream);
+        var lines = new List<string>();
+        if (truncated)
+        {
+            _ = reader.ReadLine();
+        }
+
+        while (reader.ReadLine() is { } line)
+        {
+            lines.Add(line);
+        }
+
+        return lines;
     }
 
     public static FlightSession Parse(IReadOnlyList<string> lines)
@@ -68,6 +141,7 @@ public sealed class FlightSession
         bool clean = false;
         int core = 0;
         int mem = 0;
+        bool sawOffsets = false;
         DateTimeOffset? endedAt = null;
 
         foreach (string line in lines)
@@ -97,6 +171,7 @@ public sealed class FlightSession
                 }
                 else if (text.StartsWith("offsets ", StringComparison.Ordinal))
                 {
+                    sawOffsets = true;
                     foreach (string part in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
                     {
                         if (part.StartsWith("core=", StringComparison.Ordinal) &&
@@ -144,6 +219,7 @@ public sealed class FlightSession
             CoreOffsetMHz = core,
             MemOffsetMHz = mem,
             Markers = markers,
+            HasOffsetsMarker = sawOffsets,
         };
     }
 

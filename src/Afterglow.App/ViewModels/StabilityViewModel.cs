@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Afterglow.Core.Hardware;
@@ -6,7 +6,7 @@ using Afterglow.Core.Stress;
 
 namespace Afterglow.App.ViewModels;
 
-public partial class StabilityViewModel : ObservableObject, IDisposable
+public partial class StabilityViewModel : ObservableObject, IDisposable, ILivePage
 {
     private readonly AppServices _services;
     private GpuContext? _gpu;
@@ -152,22 +152,46 @@ public partial class StabilityViewModel : ObservableObject, IDisposable
     /// </summary>
     public void RebindGpu() => _gpu = _services.SelectedGpu;
 
+    private volatile bool _isLive;
+
+    /// <inheritdoc />
+    public bool IsLive
+    {
+        get => _isLive;
+        set
+        {
+            if (_isLive == value)
+            {
+                return;
+            }
+
+            _isLive = value;
+            if (value && _services.Telemetry.TryHistoryFor(LiveDeviceIndex)?.Latest is { } latest)
+            {
+                ApplySnapshot(latest);
+            }
+        }
+    }
+
+    private uint LiveDeviceIndex => _gpu?.Index ?? 0;
+
     private void OnSnapshot(Core.Telemetry.GpuSnapshot snapshot)
     {
-        uint deviceIndex = _gpu?.Index ?? 0;
-        if (snapshot.DeviceIndex != deviceIndex)
+        if (!_isLive || snapshot.DeviceIndex != LiveDeviceIndex)
         {
             return;
         }
 
-        Application.Current?.Dispatcher.BeginInvoke(() =>
-        {
-            string hot = snapshot.HotSpotTempC is double hs ? $" (hot {hs:F0}°)" : string.Empty;
-            string mem = snapshot.MemJunctionTempC is double mj ? $" · mem {mj:F0}°C" : string.Empty;
-            LiveStatsText =
-                $"{snapshot.CoreClockMHz ?? 0} MHz · {snapshot.GpuTempC ?? 0}°C{hot}{mem} · " +
-                $"{snapshot.PowerW ?? 0:F0} W · fans {snapshot.MaxFanPercent ?? 0}%";
-        });
+        Application.Current?.Dispatcher.BeginInvoke(() => ApplySnapshot(snapshot));
+    }
+
+    private void ApplySnapshot(Core.Telemetry.GpuSnapshot snapshot)
+    {
+        string hot = snapshot.HotSpotTempC is double hs ? $" (hot {hs:F0}°)" : string.Empty;
+        string mem = snapshot.MemJunctionTempC is double mj ? $" · mem {mj:F0}°C" : string.Empty;
+        LiveStatsText =
+            $"{snapshot.CoreClockMHz ?? 0} MHz · {snapshot.GpuTempC ?? 0}°C{hot}{mem} · " +
+            $"{snapshot.PowerW ?? 0:F0} W · fans {snapshot.MaxFanPercent ?? 0}%";
     }
 
     partial void OnIntensityChanged(double value) => OnPropertyChanged(nameof(IntensityLabel));

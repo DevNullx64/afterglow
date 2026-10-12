@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 using WinForms = System.Windows.Forms;
 
@@ -11,7 +11,7 @@ namespace Afterglow.App.Services;
 public sealed class TrayService : IDisposable
 {
     private readonly WinForms.NotifyIcon _icon;
-    private DateTime _lastAlert = DateTime.MinValue;
+    private readonly Dictionary<string, DateTime> _lastAlertByTitle = [];
 
     public event Action? OpenRequested;
 
@@ -58,15 +58,20 @@ public sealed class TrayService : IDisposable
         _icon.Text = text.Length > 127 ? text[..127] : text;
     }
 
-    /// <summary>Balloon alert, rate-limited to one per minute.</summary>
+    /// <summary>
+    /// Balloon alert, rate-limited to one per minute PER TITLE: a repeating
+    /// kind of alert is throttled without silencing a different, possibly more
+    /// important one (an automation action, a refused fan command).
+    /// </summary>
     public void Alert(string title, string message)
     {
-        if (DateTime.UtcNow - _lastAlert < TimeSpan.FromMinutes(1))
+        var now = DateTime.UtcNow;
+        if (_lastAlertByTitle.TryGetValue(title, out var last) && now - last < TimeSpan.FromMinutes(1))
         {
             return;
         }
 
-        _lastAlert = DateTime.UtcNow;
+        _lastAlertByTitle[title] = now;
         _icon.ShowBalloonTip(5000, title, message, WinForms.ToolTipIcon.Warning);
     }
 

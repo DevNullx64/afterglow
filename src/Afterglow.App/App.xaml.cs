@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
@@ -108,6 +108,15 @@ public partial class App : Application
 
         DispatcherUnhandledException += OnUnhandledException;
 
+        // One log line per launch with where startup time went, so a slow
+        // logon can be diagnosed from the log instead of guessed at.
+        var startupClock = Stopwatch.StartNew();
+        double runtimeMs;
+        using (var self = Process.GetCurrentProcess())
+        {
+            runtimeMs = (DateTime.Now - self.StartTime).TotalMilliseconds;
+        }
+
         try
         {
             // Screenshot runs are ephemeral: no black box (it belongs to the
@@ -123,14 +132,27 @@ public partial class App : Application
             return;
         }
 
+        long servicesMs = startupClock.ElapsedMilliseconds;
         _mainViewModel = new MainViewModel(_services);
+        long viewModelsMs = startupClock.ElapsedMilliseconds - servicesMs;
         if (page is not null)
         {
             _mainViewModel.NavigateTo(page);
         }
 
+        long windowStart = startupClock.ElapsedMilliseconds;
         var window = new MainWindow { DataContext = _mainViewModel };
         MainWindow = window;
+        long windowMs = startupClock.ElapsedMilliseconds - windowStart;
+        void LogStartup(string end) => Core.Diagnostics.Log.Info(
+            $"Startup: {runtimeMs:F0} ms runtime before OnStartup, then services {servicesMs} ms, " +
+            $"view models {viewModelsMs} ms, window {windowMs} ms; {end} at {startupClock.ElapsedMilliseconds} ms.");
+
+        // Pages only draw while the window is actually on screen (ILivePage).
+        void SyncWindowVisible() =>
+            _services.SetWindowVisible(window.IsVisible && window.WindowState != WindowState.Minimized);
+        window.IsVisibleChanged += (_, _) => SyncWindowVisible();
+        window.StateChanged += (_, _) => SyncWindowVisible();
 
         if (screenshotPath is not null)
         {
@@ -148,9 +170,11 @@ public partial class App : Application
             window.WindowState = WindowState.Minimized;
             window.ShowInTaskbar = false;
             window.Hide();
+            LogStartup("resident in the tray");
         }
         else
         {
+            window.ContentRendered += (_, _) => LogStartup("first frame");
             window.Show();
         }
     }

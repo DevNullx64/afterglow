@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -73,7 +73,14 @@ public sealed class SparkGraph : FrameworkElement
     private static readonly Brush CrosshairBrush = MakeFrozen(new SolidColorBrush(Color.FromArgb(80, 255, 255, 255)));
     private static readonly Brush PillBrush = MakeFrozen(new SolidColorBrush(Color.FromArgb(216, 12, 15, 20)));
     private static readonly Brush PillTextBrush = MakeFrozen(new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)));
+    private static readonly Pen GridPen = MakeFrozen(new Pen(GridBrush, 1));
+    private static readonly Pen CrosshairPen = MakeFrozen(new Pen(CrosshairBrush, 1));
     private static readonly Typeface LabelTypeface = new("Segoe UI");
+
+    // Scale labels change only when the range does; re-shaping the same text
+    // every tick (twelve graphs, twice each) was pure waste.
+    private (string Text, double Dpi, FormattedText Formatted)? _maxLabel;
+    private (string Text, double Dpi, FormattedText Formatted)? _minLabel;
 
     private Pen? _linePen;
     private Pen? _linePen2;
@@ -180,10 +187,11 @@ public sealed class SparkGraph : FrameworkElement
         graph._fillBrush2 = null;
     }
 
-    private static Brush MakeFrozen(Brush brush)
+    private static T MakeFrozen<T>(T freezable)
+        where T : Freezable
     {
-        brush.Freeze();
-        return brush;
+        freezable.Freeze();
+        return freezable;
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -267,7 +275,7 @@ public sealed class SparkGraph : FrameworkElement
         for (int g = 1; g <= 3; g++)
         {
             double y = height * g / 4.0;
-            dc.DrawLine(new Pen(GridBrush, 1), new Point(0, y), new Point(width, y));
+            dc.DrawLine(GridPen, new Point(0, y), new Point(width, y));
         }
 
         EnsureBrushes();
@@ -322,8 +330,9 @@ public sealed class SparkGraph : FrameworkElement
 
         if (ShowScale)
         {
-            DrawLabel(dc, Format(max), new Point(4, 2));
-            DrawLabel(dc, Format(min), new Point(4, height - 15));
+            double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+            dc.DrawText(CachedLabel(ref _maxLabel, Format(max), dpi), new Point(4, 2));
+            dc.DrawText(CachedLabel(ref _minLabel, Format(min), dpi), new Point(4, height - 15));
         }
 
         if (HoverEnabled && _hoverX is double hx)
@@ -343,7 +352,7 @@ public sealed class SparkGraph : FrameworkElement
         int absIdx = offset + i;
         double snappedX = startX + (i * stepX);
 
-        dc.DrawLine(new Pen(CrosshairBrush, 1), new Point(snappedX, 0), new Point(snappedX, height));
+        dc.DrawLine(CrosshairPen, new Point(snappedX, 0), new Point(snappedX, height));
 
         double v1 = all[absIdx];
         if (!double.IsNaN(v1))
@@ -456,12 +465,18 @@ public sealed class SparkGraph : FrameworkElement
         return gradient;
     }
 
-    private void DrawLabel(DrawingContext dc, string text, Point at)
+    private static FormattedText CachedLabel(
+        ref (string Text, double Dpi, FormattedText Formatted)? cache, string text, double dpi)
     {
+        if (cache is { } hit && hit.Text == text && hit.Dpi == dpi)
+        {
+            return hit.Formatted;
+        }
+
         var formatted = new FormattedText(
-            text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, LabelTypeface, 10, LabelBrush,
-            VisualTreeHelper.GetDpi(this).PixelsPerDip);
-        dc.DrawText(formatted, at);
+            text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, LabelTypeface, 10, LabelBrush, dpi);
+        cache = (text, dpi, formatted);
+        return formatted;
     }
 
     private static string Format(double value) =>

@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Afterglow.Core.Hardware;
@@ -7,7 +7,7 @@ using Afterglow.Core.Tuning;
 
 namespace Afterglow.App.ViewModels;
 
-public partial class VfCurveViewModel : ObservableObject
+public partial class VfCurveViewModel : ObservableObject, ILivePage
 {
     private readonly AppServices _services;
     private GpuContext? _gpu;
@@ -236,18 +236,42 @@ public partial class VfCurveViewModel : ObservableObject
         RefreshVfPoints();
     }
 
+    private volatile bool _isLive;
+
+    /// <inheritdoc />
+    public bool IsLive
+    {
+        get => _isLive;
+        set
+        {
+            if (_isLive == value)
+            {
+                return;
+            }
+
+            _isLive = value;
+            if (value && _services.Telemetry.TryHistoryFor(LiveDeviceIndex)?.Latest is { } latest)
+            {
+                ApplySnapshot(latest);
+                RefreshCurve();
+            }
+        }
+    }
+
+    private uint LiveDeviceIndex => _gpu?.Index ?? 0;
+
     private void OnSnapshot(GpuSnapshot snapshot)
     {
-        uint index = _gpu?.Index ?? 0;
-        if (snapshot.DeviceIndex != index)
+        // Display only: the curve recorder samples every tick in AppServices,
+        // and a running probe samples on its own thread.
+        if (!_isLive || snapshot.DeviceIndex != LiveDeviceIndex)
         {
             return;
         }
 
         Application.Current?.Dispatcher.BeginInvoke(() =>
         {
-            LiveVoltage = snapshot.CoreVoltageMv ?? 0;
-            LiveClock = snapshot.CoreClockMHz ?? 0;
+            ApplySnapshot(snapshot);
 
             // Redraw the curve a few times a minute; sampling itself is continuous.
             if (++_tick % 5 == 0)
@@ -255,6 +279,12 @@ public partial class VfCurveViewModel : ObservableObject
                 RefreshCurve();
             }
         });
+    }
+
+    private void ApplySnapshot(GpuSnapshot snapshot)
+    {
+        LiveVoltage = snapshot.CoreVoltageMv ?? 0;
+        LiveClock = snapshot.CoreClockMHz ?? 0;
     }
 
     private void RefreshCurve()

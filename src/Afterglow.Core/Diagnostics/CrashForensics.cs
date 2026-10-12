@@ -18,7 +18,15 @@ public static class CrashForensics
 {
     public static CrashReport? AnalyzePreviousSession(string flightDirectory)
     {
-        var session = FlightSession.Load(Path.Combine(flightDirectory, "current.log"));
+        string path = Path.Combine(flightDirectory, "current.log");
+
+        // The normal case: the last line says the session ended on purpose.
+        if (FlightSession.EndedCleanly(path))
+        {
+            return null;
+        }
+
+        var session = FlightSession.Load(path);
         if (session is null || session.CleanShutdown || session.EndedAt is not { } end)
         {
             return null;

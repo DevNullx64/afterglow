@@ -133,7 +133,10 @@ public static class StartupTaskService
     {
         try
         {
-            using var process = Process.Start(new ProcessStartInfo("schtasks.exe", arguments)
+            // Full path: the elevated app must not run whatever "schtasks.exe"
+            // sits in its own (possibly user-writable) folder or working directory.
+            using var process = Process.Start(new ProcessStartInfo(
+                Path.Combine(Environment.SystemDirectory, "schtasks.exe"), arguments)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
