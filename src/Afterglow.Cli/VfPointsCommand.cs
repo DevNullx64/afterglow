@@ -99,7 +99,10 @@ internal static class VfPointsCommand
             }
 
             Console.WriteLine(FormattableString.Invariant(
-                $"Flatten @ {plan.AnchorVoltageMv:F0} mV: {plan.AnchorStoredClockMHz:F0} -> {plan.TargetClockMHz:F0} MHz, {plan.PointsFlattened} higher points capped."));
+                $"Flatten @ {plan.AnchorVoltageMv:F0} mV: {plan.AnchorStoredClockMHz:F0} -> {plan.TargetClockMHz:F0} MHz, {plan.PointsFlattened} higher points capped") +
+                (plan.LowerPointsCapped > 0
+                    ? FormattableString.Invariant($", {plan.LowerPointsCapped} lower points brought down to the target.")
+                    : "."));
             var result = gpu.Tuner.SetVfPointOffsets(plan.OffsetsMHz);
             Console.WriteLine($"{result.Knob}: {(result.Applied ? "ok" : "FAILED")} — {result.Detail}");
             return result.Applied ? 0 : 1;

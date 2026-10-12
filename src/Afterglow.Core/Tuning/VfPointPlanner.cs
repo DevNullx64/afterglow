@@ -5,10 +5,11 @@ namespace Afterglow.Core.Tuning;
 /// <summary>
 /// Pure math for per-point curve edits. The classic flatten undervolt (what
 /// Afterburner users do by hand): raise the point at the target voltage to the
-/// target clock, cap every higher-voltage point to the same clock, and zero
-/// everything below so the write is deterministic — the GPU then runs the
-/// target clock at the target voltage and never boosts past it into higher
-/// voltage bins.
+/// target clock, cap every higher-voltage point to the same clock, and write
+/// every lower point explicitly so the result is deterministic — back to stock,
+/// or down to the target where stock already runs faster than it. The GPU then
+/// runs the target clock at the target voltage and no point anywhere on the
+/// curve asks for more than the target.
 /// </summary>
 public static class VfPointPlanner
 {
@@ -35,13 +36,20 @@ public static class VfPointPlanner
         return false;
     }
 
+    /// <param name="PointsFlattened">Higher-voltage points capped to the target.</param>
+    /// <param name="LowerPointsCapped">
+    /// Lower-voltage points whose stock clock already exceeded the target and
+    /// were brought down to it (a target below the stored curve); zero for the
+    /// usual upward flatten, where every lower point simply returns to stock.
+    /// </param>
     public sealed record FlattenPlan(
         IReadOnlyDictionary<int, int> OffsetsMHz,
         int AnchorIndex,
         double AnchorVoltageMv,
         double AnchorStoredClockMHz,
         double TargetClockMHz,
-        int PointsFlattened);
+        int PointsFlattened,
+        int LowerPointsCapped = 0);
 
     /// <summary>
     /// Builds the full-table offset set for a flatten undervolt, or null with a
@@ -79,41 +87,57 @@ public static class VfPointPlanner
         int anchorDelta = (int)Math.Round(targetClockMHz - anchor.ClockMHz);
         if (Math.Abs(anchorDelta) > MaxPlannedOffsetMHz)
         {
-            refusal = $"Reaching {targetClockMHz:F0} MHz at {anchor.VoltageMv:F0} mV needs a " +
-                      $"{anchorDelta:+0;-0} MHz point offset — outside the ±{MaxPlannedOffsetMHz} MHz the " +
-                      "planner considers sane. Pick a target closer to the stored curve.";
+            refusal = FormattableString.Invariant(
+                $"Reaching {targetClockMHz:F0} MHz at {anchor.VoltageMv:F0} mV needs a ") +
+                FormattableString.Invariant(
+                    $"{anchorDelta:+0;-0} MHz point offset — outside the ±{MaxPlannedOffsetMHz} MHz the ") +
+                "planner considers sane. Pick a target closer to the stored curve.";
             return null;
         }
 
         var offsets = new Dictionary<int, int>();
         int flattened = 0;
+        int lowerCapped = 0;
         foreach (var point in points)
         {
-            if (point.VoltageMv < anchor.VoltageMv)
+            int delta;
+            if (point.Index == anchor.Index)
             {
-                // Deterministic write: lower points explicitly return to stock.
-                offsets[point.Index] = 0;
-                continue;
+                delta = anchorDelta;
+            }
+            else if (point.VoltageMv < anchor.VoltageMv)
+            {
+                // Deterministic write: lower points explicitly return to stock —
+                // unless stock already runs faster than the target, which is what
+                // a target below the stored curve means. Zeroing those (F-11)
+                // left e.g. 1643 MHz at 850 mV under a "flatten at 875 mV to
+                // 1500 MHz", a higher clock at a lower voltage than the cap the
+                // user just pinned. They are capped to the target like the rest.
+                delta = Math.Min(0, (int)Math.Round(targetClockMHz - point.ClockMHz));
+                if (delta < 0)
+                {
+                    lowerCapped++;
+                }
+            }
+            else
+            {
+                delta = (int)Math.Round(targetClockMHz - point.ClockMHz);
+                flattened++;
             }
 
-            int delta = point.Index == anchor.Index
-                ? anchorDelta
-                : (int)Math.Round(targetClockMHz - point.ClockMHz);
             if (Math.Abs(delta) > NvapiGpu.VfpOffsetLimitMHz)
             {
-                refusal = $"Capping the {point.VoltageMv:F0} mV point to {targetClockMHz:F0} MHz needs " +
-                          $"{delta:+0;-0} MHz — outside the driver's ±{NvapiGpu.VfpOffsetLimitMHz} MHz range.";
+                refusal = FormattableString.Invariant(
+                    $"Capping the {point.VoltageMv:F0} mV point to {targetClockMHz:F0} MHz needs ") +
+                    FormattableString.Invariant(
+                        $"{delta:+0;-0} MHz — outside the driver's ±{NvapiGpu.VfpOffsetLimitMHz} MHz range.");
                 return null;
             }
 
             offsets[point.Index] = delta;
-            if (point.Index != anchor.Index)
-            {
-                flattened++;
-            }
         }
 
         return new FlattenPlan(
-            offsets, anchor.Index, anchor.VoltageMv, anchor.ClockMHz, targetClockMHz, flattened);
+            offsets, anchor.Index, anchor.VoltageMv, anchor.ClockMHz, targetClockMHz, flattened, lowerCapped);
     }
 }

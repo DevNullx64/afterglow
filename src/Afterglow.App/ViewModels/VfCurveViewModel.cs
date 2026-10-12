@@ -180,9 +180,13 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
         }
 
         var result = _gpu.Tuner.SetVfPointOffsets(plan.OffsetsMHz);
+        string lower = plan.LowerPointsCapped > 0
+            ? string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $", {plan.LowerPointsCapped} lower points brought down to the target")
+            : string.Empty;
         VfpStatusText = string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
-            $"Flatten @ {plan.AnchorVoltageMv:F0} mV → {plan.TargetClockMHz:F0} MHz ({plan.PointsFlattened} points capped): " +
+            $"Flatten @ {plan.AnchorVoltageMv:F0} mV → {plan.TargetClockMHz:F0} MHz ({plan.PointsFlattened} higher points capped{lower}): " +
             $"{(result.Applied ? "ok" : "FAILED")} — {result.Detail}");
         RefreshVfPoints();
     }

@@ -63,12 +63,53 @@ public class VfPointPlannerTests
     [Fact]
     public void Absurd_targets_are_refused_with_a_reason()
     {
+        // F-61: every refusal mentions "MHz", so the old Contains("MHz") check
+        // could not tell which guard fired. Pin the guard AND its numbers: the
+        // 875 mV point stores 1700 MHz, so 3500 MHz needs +1800 — the planner's
+        // ±1000 limit, not the 300..4500 band, must be what refuses it.
         Assert.Null(VfPointPlanner.PlanFlatten(Curve(), 875, 3500, out string? refusal));
-        Assert.NotNull(refusal);
-        Assert.Contains("MHz", refusal, StringComparison.Ordinal);
+        Assert.Equal(
+            "Reaching 3500 MHz at 875 mV needs a +1800 MHz point offset — outside the ±1000 MHz the " +
+            "planner considers sane. Pick a target closer to the stored curve.",
+            refusal);
 
         Assert.Null(VfPointPlanner.PlanFlatten([], 875, 1875, out string? empty));
-        Assert.NotNull(empty);
+        Assert.Equal("The driver exposed no per-point curve to edit.", empty);
+    }
+
+    [Fact]
+    public void The_planner_offset_limit_is_exactly_1000_MHz()
+    {
+        // 875 mV stores 1700 MHz: +1000 is the last accepted anchor delta, +1001
+        // the first refused. Moving MaxPlannedOffsetMHz either way fails this.
+        Assert.NotNull(VfPointPlanner.PlanFlatten(Curve(), 875, 2700, out string? accepted));
+        Assert.Null(accepted);
+
+        Assert.Null(VfPointPlanner.PlanFlatten(Curve(), 875, 2701, out string? refused));
+        Assert.StartsWith("Reaching 2701 MHz at 875 mV needs a +1001 MHz point offset — outside the ±1000 MHz",
+            refused, StringComparison.Ordinal);
+
+        Assert.Null(VfPointPlanner.PlanFlatten(Curve(), 875, 699, out string? refusedDown));
+        Assert.StartsWith("Reaching 699 MHz at 875 mV needs a -1001 MHz point offset",
+            refusedDown, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_target_band_is_exactly_300_to_4500_MHz()
+    {
+        // Curves whose anchor sits within the planner limit of each band edge,
+        // so only the band can be what refuses one MHz further out.
+        var high = new List<NvapiGpu.VfpTablePoint> { new(0, 1000, 3600, 0), new(1, 1050, 3700, 0) };
+        Assert.NotNull(VfPointPlanner.PlanFlatten(high, 1000, 4500, out string? atTop));
+        Assert.Null(atTop);
+        Assert.Null(VfPointPlanner.PlanFlatten(high, 1000, 4501, out string? overTop));
+        Assert.Equal("Target clock outside 300..4500 MHz.", overTop);
+
+        var low = new List<NvapiGpu.VfpTablePoint> { new(0, 600, 700, 0), new(1, 650, 800, 0) };
+        Assert.NotNull(VfPointPlanner.PlanFlatten(low, 600, 300, out string? atBottom));
+        Assert.Null(atBottom);
+        Assert.Null(VfPointPlanner.PlanFlatten(low, 600, 299, out string? underBottom));
+        Assert.Equal("Target clock outside 300..4500 MHz.", underBottom);
     }
 
     [Fact]

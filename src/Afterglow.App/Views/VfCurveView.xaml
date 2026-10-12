@@ -117,7 +117,7 @@
                         <Rectangle Width="1" Height="24" Fill="{StaticResource Stroke}" Margin="16,0,16,6" />
                         <TextBlock Text="Flatten at this point to" FontSize="12" Foreground="{StaticResource TextMuted}"
                                    VerticalAlignment="Center" Margin="0,0,0,6"
-                                   ToolTip="The classic curve undervolt: raise the selected point to the target clock and cap every higher-voltage point to the same clock, so the GPU runs the target clock at this voltage and never boosts past it." />
+                                   ToolTip="The classic curve undervolt: raise the selected point to the target clock, cap every higher-voltage point to the same clock, and bring any lower-voltage point that stock runs faster than the target down to it, so no point on the curve asks for more than the target." />
                         <TextBox Text="{Binding VfpTargetClockText, UpdateSourceTrigger=PropertyChanged}" Width="70"
                                  FontSize="12.5" Margin="8,0,0,6" TextAlignment="Center" VerticalAlignment="Center" />
                         <TextBlock Text="MHz" FontSize="12" Foreground="{StaticResource TextMuted}"
