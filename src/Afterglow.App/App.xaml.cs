@@ -22,6 +22,7 @@ public partial class App : Application
     private bool _exitRequested;
     private System.Threading.Mutex? _singleInstanceMutex;
     private System.Threading.EventWaitHandle? _activationSignal;
+    private RegisteredWaitHandle? _activationWait;
 
     public static new App Current => (App)Application.Current;
 
@@ -251,28 +252,14 @@ public partial class App : Application
             return;
         }
 
-        var thread = new Thread(() =>
-        {
-            while (!_exitRequested)
-            {
-                try
-                {
-                    if (_activationSignal.WaitOne(TimeSpan.FromSeconds(1)))
-                    {
-                        _ = Dispatcher.BeginInvoke(() => RestoreWindow(window));
-                    }
-                }
-                catch (ObjectDisposedException)
-                {
-                    return;
-                }
-            }
-        })
-        {
-            IsBackground = true,
-            Name = "Afterglow activation",
-        };
-        thread.Start();
+        // A registered kernel wait instead of a dedicated thread that woke every
+        // second to check for exit: nothing runs until a second launch signals.
+        _activationWait = ThreadPool.RegisterWaitForSingleObject(
+            _activationSignal,
+            (_, _) => Dispatcher.BeginInvoke(() => RestoreWindow(window)),
+            state: null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
     }
 
     private static bool TryRelaunchElevated(string[] args)
@@ -393,6 +380,7 @@ public partial class App : Application
 
         _mainViewModel?.Stability.Dispose();
         _services?.Dispose();
+        _activationWait?.Unregister(null);
         _activationSignal?.Dispose();
         _singleInstanceMutex?.Dispose();
         base.OnExit(e);
