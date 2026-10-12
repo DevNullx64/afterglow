@@ -9,8 +9,9 @@ namespace Afterglow.Core.Tests;
 /// </summary>
 public class StepperShutdownTests
 {
-    private static StepperStatus Final(string phase, int offset, bool running = false) =>
-        new(running, phase, offset, LastGoodOffsetMHz: null, TimeSpan.Zero, TimeSpan.Zero, [], ResultOffsetMHz: null);
+    private static StepperStatus Final(string phase, int offset, bool running = false, bool? restored = null) =>
+        new(running, phase, offset, LastGoodOffsetMHz: null, TimeSpan.Zero, TimeSpan.Zero, [], ResultOffsetMHz: null,
+            StartOffsetRestored: restored);
 
     [Fact]
     public void No_run_in_flight_is_a_clean_exit()
@@ -38,6 +39,25 @@ public class StepperShutdownTests
         // After a TDR the driver can refuse the restoring apply; the run still
         // reports "cancelled" at the start offset, but the card reads +180.
         Assert.False(StepperShutdown.LeftSettled(wasRunning: true, unwound: true, Final("cancelled", 0), liveCoreOffsetMHz: 180));
+    }
+
+    [Fact]
+    public void A_refused_restore_the_run_reports_honestly_is_not()
+    {
+        // Since 1.3 the stepper publishes where the card is left when the driver
+        // refuses the restore: +180 with StartOffsetRestored false. The readback
+        // agrees with that status, which must not make the exit clean.
+        Assert.False(StepperShutdown.LeftSettled(
+            wasRunning: true, unwound: true, Final("cancelled", 180, restored: false), liveCoreOffsetMHz: 180));
+        Assert.False(StepperShutdown.LeftSettled(
+            wasRunning: true, unwound: true, Final("failed", 240, restored: false), liveCoreOffsetMHz: 240));
+    }
+
+    [Fact]
+    public void A_restore_the_run_reports_as_landed_and_the_card_confirms_is_clean()
+    {
+        Assert.True(StepperShutdown.LeftSettled(
+            wasRunning: true, unwound: true, Final("cancelled", 0, restored: true), liveCoreOffsetMHz: 0));
     }
 
     [Fact]

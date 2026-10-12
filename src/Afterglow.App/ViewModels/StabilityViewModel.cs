@@ -447,11 +447,21 @@ public partial class StabilityViewModel : ObservableObject, IDisposable, ILivePa
         // can fail (a driver still refusing calls after a TDR) and the run
         // reports "cancelled" regardless. The card's own readback decides.
         int? live = null;
-        if (wasRunning && unwound && _stepperGpu is { Nvml: { } nvml } &&
-            nvml.TryGetClockOffset(Core.Interop.Nvml.NvmlClockType.Graphics, out var offset) ==
-                Core.Interop.Nvml.NvmlReturn.Success)
+        if (wasRunning && unwound && _stepperGpu is { } gpu)
         {
-            live = offset.ClockOffsetMHz;
+            if (gpu.Nvml is { } nvml)
+            {
+                if (nvml.TryGetClockOffset(Core.Interop.Nvml.NvmlClockType.Graphics, out var offset) ==
+                    Core.Interop.Nvml.NvmlReturn.Success)
+                {
+                    live = offset.ClockOffsetMHz;
+                }
+            }
+            else if (gpu.Tuner.Capabilities.SupportsCoreOffset)
+            {
+                // Another vendor's tuner reads its own offset back (no NVML here).
+                live = gpu.Tuner.ReadCurrent().CoreOffsetMHz;
+            }
         }
 
         bool settled = stepper is null || StepperShutdown.LeftSettled(wasRunning, unwound, stepper.Status, live);

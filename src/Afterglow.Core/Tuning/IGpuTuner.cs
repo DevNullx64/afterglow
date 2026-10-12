@@ -134,6 +134,13 @@ public interface IGpuTuner
     int? ReadTempLimitC() => null;
 
     /// <summary>
+    /// The lowest clock lock and power limit a profile may carry on this device
+    /// (<see cref="TuningProfile.Validate"/>'s floors): NVML's 210 MHz and 50 W by
+    /// default; a device whose driver reports lower floors overrides them.
+    /// </summary>
+    (uint LockFloorMHz, double PowerFloorW) ProfileFloors => (210, 50);
+
+    /// <summary>
     /// Raised after every call that may have changed what this card runs, whoever
     /// made it (a page, a hotkey, the TDR watchdog, the stepper, the certifier,
     /// the V/F probe), so pages that show applied state re-read (F-08, F-75).

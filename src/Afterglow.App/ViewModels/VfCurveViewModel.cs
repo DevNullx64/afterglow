@@ -43,6 +43,9 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
     /// <summary>The card a running probe is bound to — captured at start, never re-read from _gpu.</summary>
     private GpuContext? _probeGpu;
 
+    /// <summary>The applied-state key of the card the last probe pinned (kept after the run ends).</summary>
+    private string? _probeRecordKey;
+
     [ObservableProperty] public partial bool ProbeRunning { get; set; }
     [ObservableProperty] public partial string ProbeStatusText { get; set; } = string.Empty;
 
@@ -496,22 +499,23 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
     }
 
     /// <summary>
-    /// App exit: cancel a running probe and wait for it to put the pre-probe
-    /// lock state back. True when nothing was running or the restore landed;
-    /// false means the probe's exact clock pin may still be applied, so App
+    /// App exit: cancel a running probe, give its restore a bounded moment to
+    /// land, then say whether a pin may still be on the card. False means App
     /// must not record a clean shutdown (same contract as the stepper, F-27).
+    /// The answer comes from the tuner's pin record, not from this run: the
+    /// tuner writes that record before every pin and resolves it only on a
+    /// verified release, so it stays right after a Reset freed the card and
+    /// while a slow load teardown (now after the restore) is still running.
     /// </summary>
     public bool StopForShutdown()
     {
-        if (_probe is not { } probe)
+        if (_probe is { } probe)
         {
-            return true;
+            _ = probe.CancelAndWait(TimeSpan.FromSeconds(10));
         }
 
-        // Settle (~2 s) and the stress load's teardown (bounded at 5 s) are the
-        // longest steps a cancel can wait behind.
-        bool finished = probe.CancelAndWait(TimeSpan.FromSeconds(10));
-        return finished && probe.LastRestoreSucceeded;
+        return _probeRecordKey is not { } key
+            || AppliedStateStore.Load(key) is not { ProbeLockPending: true };
     }
 
     /// <summary>
@@ -570,6 +574,14 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
         }
 
         _probeGpu = gpu;
+        try
+        {
+            _probeRecordKey = gpu.Tuner.RecordKey;
+        }
+        catch (InvalidOperationException)
+        {
+            _probeRecordKey = null; // a tuner with no key keeps no record to consult
+        }
 
         _probe = new VfCurveProbe(gpu.Tuner, () => gpu.Poller.Poll())
         {

@@ -389,7 +389,6 @@ public sealed class GpuTuner : IGpuTuner
         }
     }
 
-    /// <summary>Returns every knob this engine owns to driver defaults.</summary>
     // The probe's exact pin while a sweep runs, kept APART from the applied
     // lock: a pin is never "the lock Afterglow applied", and holding it in
     // the same shadow made the next sweep restore a failed-release pin as a
@@ -434,6 +433,7 @@ public sealed class GpuTuner : IGpuTuner
     /// </summary>
     private void ResolveProbeRecord() => AppliedStateStore.ResolveProbeLock(_recordKey);
 
+    /// <summary>Returns every knob this engine owns to driver defaults.</summary>
     public ApplyResult ResetToDefaults() => Notify(ResetUnderLock());
 
     private ApplyResult ResetUnderLock()
@@ -560,8 +560,10 @@ public sealed class GpuTuner : IGpuTuner
     }
 
     /// <summary>
-    /// Confirms a core-offset write by reading it back. Returns null when the
-    /// offset is confirmed, otherwise the sentence to append to the failure.
+    /// Confirms a core-offset write by reading it back. False when the readback
+    /// disagrees (<paramref name="problem"/> is the sentence to append to the
+    /// failure); true when it agrees (<paramref name="problem"/> is "verified")
+    /// or the getter did not answer (<paramref name="problem"/> is null: unverified).
     /// <para>
     /// The two V/F-point paths re-write the global core offset after clearing
     /// the table it shares, and reported that re-write from the driver's return
@@ -998,7 +1000,7 @@ public sealed class GpuTuner : IGpuTuner
         {
             // Allow idle downclocking: lock the range from the idle floor to
             // the target — the same write the probe's restore uses.
-            var rc = RestoreTuningLock(lockMHz);
+            var rc = RestoreTuningLockCore(lockMHz);
 
             string detail = rc == NvmlReturn.InvalidArgument
                 ? $"{RangeLockFloorMHz}..{lockMHz} MHz — the driver rejected this range; this GPU may " +
@@ -1029,21 +1031,27 @@ public sealed class GpuTuner : IGpuTuner
     /// path must use this, not <see cref="LockClockForProbe"/>: restoring a
     /// range lock as an exact pin would hold the GPU at full clocks at idle.
     /// </summary>
-    public NvmlReturn RestoreTuningLock(uint lockMHz)
+    public NvmlReturn RestoreTuningLock(uint lockMHz) => Notify(RestoreTuningLockCore(lockMHz));
+
+    /// <summary>
+    /// The write behind <see cref="RestoreTuningLock"/>, without the notification:
+    /// Apply and EndProbe call it while holding the lock, and their own public
+    /// entry points notify once, after the lock is released.
+    /// </summary>
+    private NvmlReturn RestoreTuningLockCore(uint lockMHz)
     {
-        NvmlReturn rc;
         lock (_applyLock)
         {
-            rc = _nvml.TrySetGpuLockedClocks(RangeLockFloorMHz, lockMHz);
+            var rc = _nvml.TrySetGpuLockedClocks(RangeLockFloorMHz, lockMHz);
             if (rc == NvmlReturn.Success)
             {
                 _appliedLockMHz = lockMHz;
                 _probePinMHz = null;
                 ResolveProbeRecord(); // a range lock this process wrote supersedes any pin
             }
-        }
 
-        return Notify(rc);
+            return rc;
+        }
     }
 
     /// <summary>
@@ -1098,7 +1106,7 @@ public sealed class GpuTuner : IGpuTuner
         {
             if (_appliedLockMHz is uint restore)
             {
-                var rc = RestoreTuningLock(restore);
+                var rc = RestoreTuningLockCore(restore);
                 return rc == NvmlReturn.Success
                     ? KnobResult.Ok("clock lock", $"restored the {restore} MHz lock")
                     : KnobResult.Fail("clock lock", $"the previous {restore} MHz clock lock could not be restored ({rc})");

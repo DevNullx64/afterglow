@@ -40,6 +40,11 @@ public sealed record PreGameSnapshot
 
     public uint? LockedCoreClockMHz { get; init; }
 
+    /// <summary>The device's profile floors (<see cref="IGpuTuner.ProfileFloors"/>), so the restore validates as its tuner will.</summary>
+    public uint LockFloorMHz { get; init; } = 210;
+
+    public double PowerFloorW { get; init; } = 50;
+
     /// <summary>True when the card has a temperature-limit control at all.</summary>
     public bool TempLimitSupported { get; init; }
 
@@ -107,6 +112,8 @@ public static class GameSessionRestore
             // driver with a lock getter that can be a factory ceiling, and writing
             // it back at game exit would make it a clamp no release can adopt.
             LockedCoreClockMHz = tuner.AppliedLockMHz,
+            LockFloorMHz = tuner.ProfileFloors.LockFloorMHz,
+            PowerFloorW = tuner.ProfileFloors.PowerFloorW,
             TempLimitSupported = tuner.Capabilities.SupportsTempLimit,
             TempLimitC = tuner.ReadTempLimitC(),
             VfPointsSupported = tuner.Capabilities.SupportsVfPoints,
@@ -185,7 +192,7 @@ public static class GameSessionRestore
 
         if (pre.PowerLimitW > 0)
         {
-            profile = WithIfValid(profile, profile with { PowerLimitW = pre.PowerLimitW }, notRestored,
+            profile = WithIfValid(pre, profile, profile with { PowerLimitW = pre.PowerLimitW }, notRestored,
                 $"power limit ({Fmt(pre.PowerLimitW)} W before the game is outside what a profile can carry)");
         }
         else if (game.PowerLimitW is not null)
@@ -197,7 +204,7 @@ public static class GameSessionRestore
         {
             if (pre.TempLimitC is int before && before > 0)
             {
-                profile = WithIfValid(profile, profile with { TempLimitC = (uint)before }, notRestored,
+                profile = WithIfValid(pre, profile, profile with { TempLimitC = (uint)before }, notRestored,
                     $"temperature limit ({before} °C before the game is outside what a profile can carry)");
             }
             else
@@ -215,7 +222,7 @@ public static class GameSessionRestore
         {
             if (pre.VfPointOffsetsMHz is { Count: > 0 } table)
             {
-                profile = WithIfValid(profile, profile with { VfPointOffsetsMHz = table, CapturedVfPoints = true }, notRestored,
+                profile = WithIfValid(pre, profile, profile with { VfPointOffsetsMHz = table, CapturedVfPoints = true }, notRestored,
                     "per-point V/F curve (its state before the game is outside what a profile can carry)");
             }
             else
@@ -309,9 +316,9 @@ public static class GameSessionRestore
     }
 
     private static TuningProfile WithIfValid(
-        TuningProfile current, TuningProfile candidate, List<string> notRestored, string whyNot)
+        PreGameSnapshot pre, TuningProfile current, TuningProfile candidate, List<string> notRestored, string whyNot)
     {
-        if (candidate.Validate() is null)
+        if (candidate.Validate(pre.LockFloorMHz, pre.PowerFloorW) is null)
         {
             return candidate;
         }

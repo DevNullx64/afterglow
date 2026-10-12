@@ -198,6 +198,15 @@ public sealed class ArcGpuTuner : IGpuTuner
     /// <inheritdoc />
     public event Action<IGpuTuner>? StateWritten;
 
+    /// <summary>
+    /// Schema-validation floors from this device: Intel frequency domains clamp
+    /// down to 100 MHz, far below NVML's 210 MHz, and a reported power floor
+    /// under 50 W is honoured.
+    /// </summary>
+    public (uint LockFloorMHz, double PowerFloorW) ProfileFloors =>
+        (Capabilities.LockClockMinMHz > 0 ? Capabilities.LockClockMinMHz : 100,
+         Capabilities is { SupportsPowerLimit: true, PowerLimitMinW: > 0 and < 50 } ? Capabilities.PowerLimitMinW : 50);
+
     private T Notify<T>(T result)
     {
         WriteNotification.Raise(StateWritten, this);
@@ -292,12 +301,7 @@ public sealed class ArcGpuTuner : IGpuTuner
         {
             var results = new List<KnobResult>();
 
-            // Schema-validate with this device's own floors: Intel frequency
-            // domains clamp down to 100 MHz, far below NVML's 210 MHz.
-            uint lockFloor = Capabilities.LockClockMinMHz > 0 ? Capabilities.LockClockMinMHz : 100;
-            double powerFloor = Capabilities is { SupportsPowerLimit: true, PowerLimitMinW: > 0 and < 50 }
-                ? Capabilities.PowerLimitMinW
-                : 50;
+            var (lockFloor, powerFloor) = ProfileFloors;
             if (profile.Validate(lockFloor, powerFloor) is string error)
             {
                 results.Add(KnobResult.Fail("profile", error));
@@ -366,12 +370,24 @@ public sealed class ArcGpuTuner : IGpuTuner
                 results.Add(ReleaseClampCore());
             }
 
-            if (Capabilities.SupportsPowerLimit && Capabilities.PowerLimitDefaultW > 0
-                && EnsureOverclockWaiver("power limit", results))
+            // The driver's own default is bounded by its own range before it is
+            // written (F-24): a reset is the panic path, and a default outside the
+            // range the same driver reports (or a 0, the shape of a failed query)
+            // is not something to send to hardware there.
+            double? usableDefault = Capabilities.SupportsPowerLimit
+                ? TuningMath.UsableDefault(
+                    Capabilities.PowerLimitDefaultW, Capabilities.PowerLimitMinW, Capabilities.PowerLimitMaxW)
+                : null;
+            if (Capabilities.SupportsPowerLimit && usableDefault is null)
             {
-                double raw = _powerLimitInMilliwatts
-                    ? Capabilities.PowerLimitDefaultW * 1000.0
-                    : Capabilities.PowerLimitDefaultW;
+                results.Add(KnobResult.Fail("power limit",
+                    $"not reset — the driver-reported default {Capabilities.PowerLimitDefaultW:F0} W is outside its " +
+                    $"own range {Capabilities.PowerLimitMinW:F0}..{Capabilities.PowerLimitMaxW:F0} W (or was not " +
+                    "reported), so it was not written; the current value is unchanged"));
+            }
+            else if (usableDefault is double defaultW && EnsureOverclockWaiver("power limit", results))
+            {
+                double raw = _powerLimitInMilliwatts ? defaultW * 1000.0 : defaultW;
                 var rc = _device.TrySetOcPowerLimitV2(raw);
                 if (rc != CtlResult.Success)
                 {
@@ -492,7 +508,7 @@ public sealed class ArcGpuTuner : IGpuTuner
                 // would hold full clocks at idle). The verified write resolves
                 // the probe's pin record; the displaced lock is forgotten only
                 // once it is back on the card.
-                var rc = RestoreTuningLock(restore);
+                var rc = WriteClampVerified(_hwMinMhz, restore, restore); // the notify-free write; EndProbe notifies once
                 if (rc != NvmlReturn.Success)
                 {
                     return KnobResult.Fail("clock lock", $"the previous {restore} MHz clock lock could not be restored ({rc})");
