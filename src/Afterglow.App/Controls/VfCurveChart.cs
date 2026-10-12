@@ -49,6 +49,24 @@ public sealed class VfCurveChart : FrameworkElement
     private static readonly Brush TargetBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x46, 0xC3, 0x6B)));
     private static readonly Brush EmptyBrush = Freeze(new SolidColorBrush(Color.FromArgb(90, 255, 255, 255)));
     private static readonly Typeface LabelFace = new("Segoe UI");
+    private static readonly Brush PillBrush = Freeze(new SolidColorBrush(Color.FromArgb(210, 12, 15, 20)));
+    private static readonly Brush PillTextBrush = Freeze(new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)));
+    private static readonly Brush DriverBrush = Freeze(new SolidColorBrush(Color.FromRgb(0xE8, 0xB3, 0x3C)));
+
+    // Drawing resources are immutable and shared: the chart redraws every
+    // telemetry tick while its page is open (the live point moves), and used
+    // to allocate a pen per gridline and a brush per bar each time.
+    private static readonly Pen GridPen = Freeze(new Pen(GridBrush, 1));
+    private static readonly Pen DriverPen = Freeze(new Pen(DriverBrush, 1.5) { DashStyle = DashStyles.Dash });
+    private static readonly Pen CurvePen = Freeze(new Pen(CurveBrush, 2) { LineJoin = PenLineJoin.Round });
+    private static readonly Pen TargetDashPen = Freeze(new Pen(TargetBrush, 1) { DashStyle = DashStyles.Dash });
+    private static readonly Pen TargetRingPen = Freeze(new Pen(TargetBrush, 2.5));
+
+    /// <summary>Hit-density bar fills, quantized to 32 alpha steps (indistinguishable on screen).</summary>
+    private static readonly Brush[] DensityBrushes = BuildDensityBrushes();
+
+    private readonly Dictionary<(string Text, double Size, Brush Brush), FormattedText> _labelCache = [];
+    private double _labelCacheDpi;
 
     private double _minV = 700, _maxV = 1200, _minF = 1000, _maxF = 3200;
     private Point? _hover;
@@ -102,10 +120,34 @@ public sealed class VfCurveChart : FrameworkElement
     /// <summary>Raised when the user picks a target point (voltage mV, clock MHz).</summary>
     public event EventHandler<(double VoltageMv, double ClockMHz)>? TargetPicked;
 
-    private static Brush Freeze(Brush brush)
+    private static T Freeze<T>(T freezable)
+        where T : Freezable
     {
-        brush.Freeze();
-        return brush;
+        freezable.Freeze();
+        return freezable;
+    }
+
+    private static Brush[] BuildDensityBrushes()
+    {
+        var brushes = new Brush[32];
+        for (int i = 0; i < brushes.Length; i++)
+        {
+            double intensity = (i + 1) / (double)brushes.Length;
+            brushes[i] = Freeze(new SolidColorBrush(Color.FromArgb((byte)(20 + (intensity * 90)), 0x58, 0xA6, 0xFF)));
+        }
+
+        return brushes;
+    }
+
+    private static void ExpandRange(IReadOnlyList<VfBin> bins, ref double vMin, ref double vMax, ref double fMin, ref double fMax)
+    {
+        foreach (var bin in bins)
+        {
+            vMin = Math.Min(vMin, bin.VoltageMv);
+            vMax = Math.Max(vMax, bin.VoltageMv);
+            fMin = Math.Min(fMin, bin.MaxClockMHz);
+            fMax = Math.Max(fMax, bin.MaxClockMHz);
+        }
     }
 
     private Rect PlotRect => new(46, 10, Math.Max(10, ActualWidth - 58), Math.Max(10, ActualHeight - 36));
@@ -138,16 +180,22 @@ public sealed class VfCurveChart : FrameworkElement
 
         var curve = Curve;
         var driver = DriverCurve;
-        var rangeSource = curve is { Count: > 1 }
-            ? (driver is { Count: > 1 } ? curve.Concat(driver).ToList() : curve)
-            : driver is { Count: > 1 } ? driver : null;
-        if (rangeSource is not null)
+        bool hasCurve = curve is { Count: > 1 };
+        bool hasDriver = driver is { Count: > 1 };
+        if (hasCurve || hasDriver)
         {
             // Auto-range with padding, snapped to readable steps.
-            double vMin = rangeSource.Min(p => p.VoltageMv);
-            double vMax = rangeSource.Max(p => p.VoltageMv);
-            double fMin = rangeSource.Min(p => p.MaxClockMHz);
-            double fMax = rangeSource.Max(p => p.MaxClockMHz);
+            double vMin = double.MaxValue, vMax = double.MinValue, fMin = double.MaxValue, fMax = double.MinValue;
+            if (hasCurve)
+            {
+                ExpandRange(curve!, ref vMin, ref vMax, ref fMin, ref fMax);
+            }
+
+            if (hasDriver)
+            {
+                ExpandRange(driver!, ref vMin, ref vMax, ref fMin, ref fMax);
+            }
+
             _minV = Math.Floor((vMin - 25) / 25) * 25;
             _maxV = Math.Ceiling((vMax + 25) / 25) * 25;
             _minF = Math.Floor((fMin - 100) / 100) * 100;
@@ -163,8 +211,6 @@ public sealed class VfCurveChart : FrameworkElement
             }
         }
 
-        var gridPen = new Pen(GridBrush, 1);
-
         // X axis: the unit rides on the last tick's label instead of floating
         // separately (a standalone "mV" collides with the final tick).
         double tickStep = Math.Max(25, Math.Round((_maxV - _minV) / 8 / 25) * 25);
@@ -177,7 +223,7 @@ public sealed class VfCurveChart : FrameworkElement
         for (int i = 0; i < ticks.Count; i++)
         {
             var p = ToScreen(ticks[i], _minF);
-            dc.DrawLine(gridPen, new Point(p.X, r.Y), new Point(p.X, r.Bottom));
+            dc.DrawLine(GridPen, new Point(p.X, r.Y), new Point(p.X, r.Bottom));
             string text = i == ticks.Count - 1 ? $"{ticks[i]:F0} mV" : $"{ticks[i]:F0}";
             var formatted = Format(text, 10, LabelBrush);
             double x = Math.Min(p.X - (formatted.Width / 2), ActualWidth - formatted.Width - 2);
@@ -188,7 +234,7 @@ public sealed class VfCurveChart : FrameworkElement
         {
             double f = _minF + ((_maxF - _minF) * i / 4);
             var p = ToScreen(_minV, f);
-            dc.DrawLine(gridPen, new Point(r.X, p.Y), new Point(r.Right, p.Y));
+            dc.DrawLine(GridPen, new Point(r.X, p.Y), new Point(r.Right, p.Y));
             DrawLabel(dc, $"{f:F0}", new Point(4, p.Y - 7), 10);
         }
 
@@ -207,7 +253,7 @@ public sealed class VfCurveChart : FrameworkElement
             }
 
             driverGeometry.Freeze();
-            dc.DrawGeometry(null, new Pen(DriverBrush, 1.5) { DashStyle = DashStyles.Dash }, driverGeometry);
+            dc.DrawGeometry(null, DriverPen, driverGeometry);
             foreach (var bin in driver)
             {
                 var p = ToScreen(bin.VoltageMv, bin.MaxClockMHz);
@@ -227,7 +273,11 @@ public sealed class VfCurveChart : FrameworkElement
             return;
         }
 
-        // Hit-density bars: how much time the GPU spent at each voltage.
+        // Hit-density bars: how much time the GPU spent at each voltage. Bar
+        // width follows the bins' own spacing on screen — not plot width / bin
+        // count, which made bars ~3x too wide once the driver table widened
+        // the voltage axis beyond the measured range (F-76).
+        double barWidth = Math.Max(2, MinBinSpacing(curve) * 0.8);
         long peak = Math.Max(1, PeakSamples);
         foreach (var bin in curve)
         {
@@ -238,9 +288,7 @@ public sealed class VfCurveChart : FrameworkElement
             }
 
             var top = ToScreen(bin.VoltageMv, bin.MaxClockMHz);
-            double barWidth = Math.Max(2, r.Width / curve.Count * 0.8);
-            var brush = new SolidColorBrush(Color.FromArgb((byte)(20 + (intensity * 90)), 0x58, 0xA6, 0xFF));
-            brush.Freeze();
+            var brush = DensityBrushes[Math.Clamp((int)Math.Ceiling(intensity * DensityBrushes.Length) - 1, 0, DensityBrushes.Length - 1)];
             dc.DrawRectangle(brush, null, new Rect(top.X - (barWidth / 2), top.Y, barWidth, r.Bottom - top.Y));
         }
 
@@ -256,7 +304,7 @@ public sealed class VfCurveChart : FrameworkElement
         }
 
         geometry.Freeze();
-        dc.DrawGeometry(null, new Pen(CurveBrush, 2) { LineJoin = PenLineJoin.Round }, geometry);
+        dc.DrawGeometry(null, CurvePen, geometry);
 
         foreach (var bin in curve)
         {
@@ -282,8 +330,8 @@ public sealed class VfCurveChart : FrameworkElement
             if (nearest is { } hit)
             {
                 var p = ToScreen(hit.VoltageMv, hit.MaxClockMHz);
-                dc.DrawLine(new Pen(GridBrush, 1), new Point(p.X, r.Y), new Point(p.X, r.Bottom));
-                dc.DrawEllipse(null, new Pen(CurveBrush, 2), p, 5.5, 5.5);
+                dc.DrawLine(GridPen, new Point(p.X, r.Y), new Point(p.X, r.Bottom));
+                dc.DrawEllipse(null, CurvePen, p, 5.5, 5.5);
 
                 var hoverLabel = Format(
                     $"{hit.MaxClockMHz:F0} MHz @ {hit.VoltageMv:F0} mV · {hit.Samples:N0} samples",
@@ -300,10 +348,9 @@ public sealed class VfCurveChart : FrameworkElement
         if (TargetVoltage > 0 && TargetClock > 0)
         {
             var t = ToScreen(TargetVoltage, TargetClock);
-            var dashed = new Pen(TargetBrush, 1) { DashStyle = DashStyles.Dash };
-            dc.DrawLine(dashed, new Point(r.X, t.Y), new Point(r.Right, t.Y));
-            dc.DrawLine(dashed, new Point(t.X, r.Y), new Point(t.X, r.Bottom));
-            dc.DrawEllipse(null, new Pen(TargetBrush, 2.5), t, 6, 6);
+            dc.DrawLine(TargetDashPen, new Point(r.X, t.Y), new Point(r.Right, t.Y));
+            dc.DrawLine(TargetDashPen, new Point(t.X, r.Y), new Point(t.X, r.Bottom));
+            dc.DrawEllipse(null, TargetRingPen, t, 6, 6);
 
             var targetLabel = Format($"target {TargetClock:F0} MHz @ {TargetVoltage:F0} mV", 11, TargetBrush);
             double tx = Math.Clamp(t.X + 10, r.X + 2, r.Right - targetLabel.Width - 6);
@@ -337,13 +384,45 @@ public sealed class VfCurveChart : FrameworkElement
         }
     }
 
-    private static readonly Brush PillBrush = Freeze(new SolidColorBrush(Color.FromArgb(210, 12, 15, 20)));
-    private static readonly Brush PillTextBrush = Freeze(new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)));
-    private static readonly Brush DriverBrush = Freeze(new SolidColorBrush(Color.FromRgb(0xE8, 0xB3, 0x3C)));
+    /// <summary>Smallest horizontal distance between adjacent measured bins, in pixels.</summary>
+    private double MinBinSpacing(IReadOnlyList<VfBin> bins)
+    {
+        double spacing = double.MaxValue;
+        for (int i = 1; i < bins.Count; i++)
+        {
+            double dx = Math.Abs(ToScreen(bins[i].VoltageMv, 0).X - ToScreen(bins[i - 1].VoltageMv, 0).X);
+            if (dx > 0.5)
+            {
+                spacing = Math.Min(spacing, dx);
+            }
+        }
 
-    private FormattedText Format(string text, double size, Brush brush) =>
-        new(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-            LabelFace, size, brush, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        return spacing == double.MaxValue ? PlotRect.Width / Math.Max(1, bins.Count) : spacing;
+    }
+
+    /// <summary>
+    /// Shaped text, cached: axis labels repeat every tick and only change with
+    /// the range, so re-shaping them each redraw was wasted work. The cache is
+    /// dropped on a DPI change and when it grows past a screenful of labels.
+    /// </summary>
+    private FormattedText Format(string text, double size, Brush brush)
+    {
+        double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        if (dpi != _labelCacheDpi || _labelCache.Count > 128)
+        {
+            _labelCache.Clear();
+            _labelCacheDpi = dpi;
+        }
+
+        if (!_labelCache.TryGetValue((text, size, brush), out var formatted))
+        {
+            formatted = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                LabelFace, size, brush, dpi);
+            _labelCache[(text, size, brush)] = formatted;
+        }
+
+        return formatted;
+    }
 
     private void DrawLabel(DrawingContext dc, string text, Point at, double size, Brush? brush = null)
     {

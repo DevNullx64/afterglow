@@ -33,13 +33,16 @@ public partial class OverlayWindow : Window
     private OverlaySettings _settings;
     private uint _deviceIndex;
 
+    // The sensor block changes once per telemetry tick; the 500 ms timer is for FPS.
+    private GpuSnapshot? _shownSnapshot;
+
     public OverlayWindow(AppServices services, OverlaySettings settings)
     {
         InitializeComponent();
         _services = services;
         _settings = settings;
         _deviceIndex = services.SelectedGpu?.Index ?? 0;
-        services.SelectedGpuChanged += gpu => _deviceIndex = gpu.Index;
+        services.SelectedGpuChanged += OnSelectedGpuChanged;
 
         Opacity = settings.Opacity;
         SourceInitialized += (_, _) => MakeClickThrough();
@@ -47,13 +50,30 @@ public partial class OverlayWindow : Window
         _timer.Tick += (_, _) => Refresh();
         _timer.Start();
         Loaded += (_, _) => Reposition();
+
+        // Rows appearing or vanishing resize the window after layout, which is
+        // when ActualWidth/Height are current — a right- or bottom-anchored
+        // overlay follows its size from here rather than from a stale guess.
+        SizeChanged += (_, _) => Reposition();
     }
 
+    private void OnSelectedGpuChanged(Core.Hardware.GpuContext gpu)
+    {
+        _deviceIndex = gpu.Index;
+        _shownSnapshot = null;
+    }
+
+    /// <summary>Takes effect immediately on an open overlay (rows, corner, opacity).</summary>
     public void ApplySettings(OverlaySettings settings)
     {
         _settings = settings;
+        _shownSnapshot = null;
         Opacity = settings.Opacity;
-        Reposition();
+        Refresh();
+        if (IsLoaded)
+        {
+            Reposition();
+        }
     }
 
     private void MakeClickThrough()
@@ -110,8 +130,18 @@ public partial class OverlayWindow : Window
             }
         }
 
-        // Sensor block
-        var snapshot = _services.Telemetry.HistoryFor(_deviceIndex).Latest;
+        // Sensor block — rebuilt only when a new snapshot has arrived.
+        var snapshot = _services.Telemetry.TryHistoryFor(_deviceIndex)?.Latest;
+        if (!ReferenceEquals(snapshot, _shownSnapshot))
+        {
+            _shownSnapshot = snapshot;
+            RefreshSensors(snapshot);
+        }
+
+    }
+
+    private void RefreshSensors(GpuSnapshot? snapshot)
+    {
         var sb = new StringBuilder();
         if (snapshot is not null)
         {
@@ -161,16 +191,15 @@ public partial class OverlayWindow : Window
         }
 
         ThrottleRow.Visibility = ThrottleRow.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-
-        if (IsLoaded)
-        {
-            Reposition();
-        }
     }
 
     protected override void OnClosed(EventArgs e)
     {
         _timer.Stop();
+
+        // The services outlive every overlay instance; a lingering handler kept
+        // each closed overlay (and its timer target) alive (F-28).
+        _services.SelectedGpuChanged -= OnSelectedGpuChanged;
         base.OnClosed(e);
     }
 }

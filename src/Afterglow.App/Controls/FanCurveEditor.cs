@@ -41,6 +41,16 @@ public sealed class FanCurveEditor : FrameworkElement
     private static readonly Brush LiveBrush = Freeze(new SolidColorBrush(Color.FromRgb(0xFF, 0x8A, 0x3C)));
     private static readonly Typeface LabelFace = new("Segoe UI");
 
+    // Shared, frozen drawing resources: the editor redraws every telemetry tick
+    // while the Fans page is open (the live marker moves).
+    private static readonly Pen GridPen = Freeze(new Pen(GridBrush, 1));
+    private static readonly Pen CurvePen = Freeze(new Pen(CurveBrush, 2) { LineJoin = PenLineJoin.Round });
+    private static readonly Pen LivePen = Freeze(new Pen(LiveBrush, 1) { DashStyle = DashStyles.Dot });
+
+    // Axis labels are the same few dozen strings every redraw.
+    private readonly Dictionary<(string Text, double Size), FormattedText> _labelCache = [];
+    private double _labelCacheDpi;
+
     private int _dragIndex = -1;
 
     public FanCurveConfig Config
@@ -70,10 +80,11 @@ public sealed class FanCurveEditor : FrameworkElement
     /// <summary>Raised after any user edit, with the updated configuration.</summary>
     public event EventHandler<FanCurveConfig>? CurveEdited;
 
-    private static Brush Freeze(Brush brush)
+    private static T Freeze<T>(T freezable)
+        where T : Freezable
     {
-        brush.Freeze();
-        return brush;
+        freezable.Freeze();
+        return freezable;
     }
 
     private Rect PlotRect => new(38, 8, Math.Max(10, ActualWidth - 50), Math.Max(10, ActualHeight - 34));
@@ -105,7 +116,6 @@ public sealed class FanCurveEditor : FrameworkElement
         }
 
         var config = Config;
-        var gridPen = new Pen(GridBrush, 1);
 
         // Zero-RPM zone
         if (config.ZeroRpmBelowC > TempMin)
@@ -119,20 +129,19 @@ public sealed class FanCurveEditor : FrameworkElement
         for (int temp = (int)TempMin; temp <= TempMax; temp += 10)
         {
             var p = ToScreen(temp, 0);
-            dc.DrawLine(gridPen, new Point(p.X, r.Y), new Point(p.X, r.Bottom));
+            dc.DrawLine(GridPen, new Point(p.X, r.Y), new Point(p.X, r.Bottom));
             DrawLabel(dc, $"{temp}°", new Point(p.X - 8, r.Bottom + 4), 10);
         }
 
         for (int duty = 0; duty <= 100; duty += 25)
         {
             var p = ToScreen(TempMin, duty);
-            dc.DrawLine(gridPen, new Point(r.X, p.Y), new Point(r.Right, p.Y));
+            dc.DrawLine(GridPen, new Point(r.X, p.Y), new Point(r.Right, p.Y));
             DrawLabel(dc, $"{duty}%", new Point(4, p.Y - 7), 10);
         }
 
         // Curve
         var points = config.Points;
-        var curvePen = new Pen(CurveBrush, 2) { LineJoin = PenLineJoin.Round };
         var geometry = new StreamGeometry();
         using (var ctx = geometry.Open())
         {
@@ -146,13 +155,13 @@ public sealed class FanCurveEditor : FrameworkElement
         }
 
         geometry.Freeze();
-        dc.DrawGeometry(null, curvePen, geometry);
+        dc.DrawGeometry(null, CurvePen, geometry);
 
         // Points
         for (int i = 0; i < points.Count; i++)
         {
             var p = ToScreen(points[i].TempC, points[i].DutyPct);
-            dc.DrawEllipse(PointFill, new Pen(CurveBrush, 2), p, i == _dragIndex ? 7 : 5, i == _dragIndex ? 7 : 5);
+            dc.DrawEllipse(PointFill, CurvePen, p, i == _dragIndex ? 7 : 5, i == _dragIndex ? 7 : 5);
             if (i == _dragIndex)
             {
                 DrawLabel(dc, $"{points[i].TempC:F0}° → {points[i].DutyPct:F0}%",
@@ -165,15 +174,26 @@ public sealed class FanCurveEditor : FrameworkElement
         {
             var live = ToScreen(Math.Clamp(LiveTemp, TempMin, TempMax), Math.Clamp(LiveDuty, 0, 100));
             dc.DrawEllipse(LiveBrush, null, live, 4, 4);
-            dc.DrawLine(new Pen(LiveBrush, 1) { DashStyle = DashStyles.Dot },
-                new Point(live.X, r.Y), new Point(live.X, r.Bottom));
+            dc.DrawLine(LivePen, new Point(live.X, r.Y), new Point(live.X, r.Bottom));
         }
     }
 
     private void DrawLabel(DrawingContext dc, string text, Point at, double size)
     {
-        var formatted = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-            LabelFace, size, LabelBrush, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        if (dpi != _labelCacheDpi || _labelCache.Count > 128)
+        {
+            _labelCache.Clear();
+            _labelCacheDpi = dpi;
+        }
+
+        if (!_labelCache.TryGetValue((text, size), out var formatted))
+        {
+            formatted = new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                LabelFace, size, LabelBrush, dpi);
+            _labelCache[(text, size)] = formatted;
+        }
+
         dc.DrawText(formatted, at);
     }
 

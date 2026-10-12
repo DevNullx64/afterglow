@@ -97,7 +97,13 @@ public partial class MainViewModel : ObservableObject
         }
 
         _automation.UpdateRules(services.Settings.AutomationRules);
-        services.SettingsChanged += updated => _automation.UpdateRules(updated.AutomationRules);
+        services.SettingsChanged += updated =>
+        {
+            _automation.UpdateRules(updated.AutomationRules);
+
+            // Overlay options apply to an overlay that is already open (F-73).
+            _overlay?.ApplySettings(updated.Overlay);
+        };
         services.Telemetry.SnapshotTaken += snapshot =>
         {
             // Rules watch every GPU; the engine tracks breaches per card.
