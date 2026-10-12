@@ -51,13 +51,73 @@
         <Setter Property="Padding" Value="14" />
     </Style>
 
+    <!-- Keyboard focus rings. WPF shows a FocusVisualStyle only when focus arrives from the
+         keyboard (Tab, arrows, access keys), never on a mouse click, so mouse visuals are
+         unchanged. Modelled on the Windows 11 focus visual: a 2 px accent ring outside a
+         1 px Bg0 gap, so it reads on dark surfaces and around accent-filled buttons alike.
+         It sits outside the control (negative margin, corner radius = control radius + 3),
+         so it never covers content. One style per corner radius: a focus visual cannot
+         read the radius of the control it decorates. -->
+    <Style x:Key="FocusRing">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border Margin="-3" CornerRadius="10" BorderThickness="2" BorderBrush="{StaticResource Accent}"
+                            SnapsToDevicePixels="True">
+                        <Border CornerRadius="8" BorderThickness="1" BorderBrush="{StaticResource Bg0}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Nav items sit 2 px apart, so their ring is drawn inside the item instead of around it. -->
+    <Style x:Key="NavFocusRing">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border CornerRadius="8" BorderThickness="2" BorderBrush="{StaticResource Accent}"
+                            SnapsToDevicePixels="True" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Around the whole slider (track and thumb); the thumb can sit at either end. -->
+    <Style x:Key="SliderFocusRing">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border Margin="-6,-2" CornerRadius="9" BorderThickness="2" BorderBrush="{StaticResource Accent}"
+                            SnapsToDevicePixels="True">
+                        <Border CornerRadius="7" BorderThickness="1" BorderBrush="{StaticResource Bg0}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Pill around the switch track and its label. -->
+    <Style x:Key="ToggleFocusRing">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Border Margin="-4,-3" CornerRadius="13" BorderThickness="2" BorderBrush="{StaticResource Accent}"
+                            SnapsToDevicePixels="True">
+                        <Border CornerRadius="11" BorderThickness="1" BorderBrush="{StaticResource Bg0}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- Navigation rail button -->
     <Style x:Key="NavButton" TargetType="RadioButton">
         <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
         <Setter Property="Height" Value="40" />
         <Setter Property="Margin" Value="8,1" />
         <Setter Property="Cursor" Value="Hand" />
-        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource NavFocusRing}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="RadioButton">
@@ -105,6 +165,7 @@
         <Setter Property="Padding" Value="16,8" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -133,6 +194,7 @@
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Padding" Value="14,7" />
         <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -154,10 +216,16 @@
         </Setter>
     </Style>
 
-    <!-- Slider: thin track with accent fill -->
+    <!-- Slider: thin track with accent fill. Focusable (the default) so every slider is
+         reachable with Tab and steps with the arrow keys: with IsSnapToTickEnabled (every
+         slider in the app except overlay opacity) an arrow press moves exactly one tick, e.g.
+         5 MHz core, 50 MHz memory, 1 % fan duty, one V/F point; overlay opacity steps by the
+         default SmallChange 0.1 over its 0.3..1 range. Home/End jump to the ends. Tuning
+         values still only reach the GPU through Apply. The parts inside stay unfocusable so
+         the slider is a single tab stop. -->
     <Style x:Key="TuneSlider" TargetType="Slider">
         <Setter Property="Height" Value="26" />
-        <Setter Property="Focusable" Value="False" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource SliderFocusRing}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Slider">
@@ -203,6 +271,10 @@
     <Style x:Key="ToggleSwitch" TargetType="CheckBox">
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Foreground" Value="{StaticResource Text}" />
+        <!-- Left so the focus ring hugs the switch and label rather than the full row
+             (the template has no background, so the hit area is unchanged). -->
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource ToggleFocusRing}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="CheckBox">
@@ -234,6 +306,7 @@
         <Setter Property="Foreground" Value="{StaticResource Text}" />
         <Setter Property="BorderBrush" Value="{StaticResource Stroke}" />
         <Setter Property="Padding" Value="10,6" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBox">
