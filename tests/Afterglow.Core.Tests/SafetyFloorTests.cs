@@ -35,9 +35,9 @@ public class SafetyFloorTests
     [Fact]
     public void A_default_inside_the_drivers_own_range_is_written_back()
     {
-        Assert.Equal(83, TuningMath.UsableDefault(83, 65, 90));
-        Assert.Equal(575, TuningMath.UsableDefault(575, 400, 575)); // RTX 5090 power: default == max
-        Assert.Equal(65, TuningMath.UsableDefault(65, 65, 90));
+        Assert.Equal(83d, TuningMath.UsableDefault(83, 65, 90));
+        Assert.Equal(575d, TuningMath.UsableDefault(575, 400, 575)); // RTX 5090 power: default == max
+        Assert.Equal(65d, TuningMath.UsableDefault(65, 65, 90));
     }
 
     [Fact]

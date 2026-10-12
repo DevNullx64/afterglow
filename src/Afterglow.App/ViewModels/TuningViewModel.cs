@@ -101,6 +101,7 @@ public partial class TuningViewModel : ObservableObject
         _services = services;
         _gpu = services.SelectedGpu;
         Capabilities = _gpu?.Tuner.Capabilities ?? DemoCapabilities;
+        WatchTuner();
         RefreshFromHardware();
     }
 
@@ -114,8 +115,64 @@ public partial class TuningViewModel : ObservableObject
         OnPropertyChanged(nameof(TuneGateText));
         OnPropertyChanged(nameof(SupportsTempLimit));
         OnPropertyChanged(nameof(TempLimitNote));
+        WatchTuner();
         RefreshFromHardware();
     }
+
+    // --- Writes made elsewhere (F-75) ---------------------------------------
+    // The V/F page, the stepper, the certifier, profile hotkeys and resets all
+    // write through the same tuner; without this the sliders kept showing the
+    // pre-change offset and lock, and "Save current" on the Profiles page then
+    // persisted values the card was not running.
+
+    private GpuTuner? _watchedTuner;
+
+    /// <summary>The applied values the sliders were last loaded from.</summary>
+    private (int Core, int Mem, double Power, uint? Boost, uint? Lock)? _lastRead;
+
+    private void WatchTuner()
+    {
+        var tuner = _gpu?.Tuner;
+        if (ReferenceEquals(tuner, _watchedTuner))
+        {
+            return;
+        }
+
+        if (_watchedTuner is not null)
+        {
+            _watchedTuner.StateWritten -= OnTunerStateWritten;
+        }
+
+        _watchedTuner = tuner;
+        if (tuner is not null)
+        {
+            tuner.StateWritten += OnTunerStateWritten;
+        }
+    }
+
+    // Raised on the writing thread (possibly a stepper or probe thread), after
+    // the tuner released its lock: hop to the UI thread without blocking it.
+    private void OnTunerStateWritten(GpuTuner tuner) =>
+        System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+        {
+            if (!ReferenceEquals(_gpu?.Tuner, tuner) || _gpu is null)
+            {
+                return; // the selection moved to another card meanwhile
+            }
+
+            // Only resync when what this page shows actually changed: a per-point
+            // edit leaves the offsets and lock alone, and must not throw away
+            // slider values the user is still composing.
+            if (_gpu.Tuner.ReadCurrent() == _lastRead)
+            {
+                return;
+            }
+
+            RefreshFromHardware();
+            ApplyResultText = "Applied values changed elsewhere (another page, a profile, a reset or a " +
+                              "stability run) — the sliders now show what the card is running.";
+            LastApplyFailed = false;
+        });
 
     /// <summary>Loads the currently applied values into the sliders.</summary>
     public void RefreshFromHardware()
@@ -126,7 +183,9 @@ public partial class TuningViewModel : ObservableObject
             return;
         }
 
-        var (core, mem, power, boost, lockMHz) = _gpu.Tuner.ReadCurrent();
+        var current = _gpu.Tuner.ReadCurrent();
+        _lastRead = current;
+        var (core, mem, power, boost, lockMHz) = current;
         CoreOffset = core;
         MemOffset = mem;
         PowerLimit = power > 0 ? power : Capabilities.PowerLimitDefaultW;

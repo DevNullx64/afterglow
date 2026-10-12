@@ -93,8 +93,8 @@ public class CliArgumentTests
 
         var flatten = VfPointsCommand.Parse(["vfpoints", "--flatten", "875:1875", "--gpu", "0"], out _);
         Assert.Equal(VfPointsCommand.VfPointsAction.Flatten, flatten?.Action);
-        Assert.Equal(875, flatten?.FlattenVoltageMv);
-        Assert.Equal(1875, flatten?.FlattenClockMHz);
+        Assert.Equal(875d, flatten?.FlattenVoltageMv);
+        Assert.Equal(1875d, flatten?.FlattenClockMHz);
         Assert.Equal(0u, flatten?.GpuIndex);
     }
 }

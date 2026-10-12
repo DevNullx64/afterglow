@@ -64,11 +64,56 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
         _services = services;
         _gpu = services.SelectedGpu;
         services.Telemetry.SnapshotTaken += OnSnapshot;
+        WatchTuner();
         RefreshCurve();
         RefreshVfPoints();
     }
 
-    // --- Per-point curve editor (Turing/Ampere/Ada) --------------------------
+    // --- Per-point curve editor --------------------------------------------
+    // Shown on whatever GPU answers the clock-boost interfaces: the capability
+    // is probed live (GpuTuner.DiscoverCapabilities), never assumed from the
+    // generation — it is verified on RTX 50 and expected on RTX 20/30/40 (F-51).
+
+    // --- Writes made elsewhere (F-08) ----------------------------------------
+    // The table was re-read only by this page's own commands, so after a TDR or
+    // panic reset, a profile apply or a Tuning-page apply the gold curve, the
+    // point readout and the offset box kept showing a table the card no longer
+    // had. Every tuner write now announces itself; this page re-reads on it.
+
+    private GpuTuner? _watchedTuner;
+
+    private void WatchTuner()
+    {
+        var tuner = _gpu?.Tuner;
+        if (ReferenceEquals(tuner, _watchedTuner))
+        {
+            return;
+        }
+
+        if (_watchedTuner is not null)
+        {
+            _watchedTuner.StateWritten -= OnTunerStateWritten;
+        }
+
+        _watchedTuner = tuner;
+        if (tuner is not null)
+        {
+            tuner.StateWritten += OnTunerStateWritten;
+        }
+    }
+
+    // Raised on the writing thread after the tuner released its lock; hop to
+    // the UI thread without blocking the writer. This page's own commands
+    // re-read synchronously right after their write, so their echo finds an
+    // unchanged table and does nothing.
+    private void OnTunerStateWritten(GpuTuner tuner) =>
+        Application.Current?.Dispatcher.BeginInvoke(() =>
+        {
+            if (ReferenceEquals(_gpu?.Tuner, tuner))
+            {
+                RefreshVfPoints(announceOutsideChange: true);
+            }
+        });
 
     private IReadOnlyList<Core.Interop.Nvapi.NvapiGpu.VfpTablePoint> _vfpPoints = [];
 
@@ -94,7 +139,11 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
         "reading the table back, and the status line says so when that readback isn't possible. Validate " +
         "with the Stability page afterwards — a point that applies is not a point that's stable.";
 
-    private void RefreshVfPoints()
+    /// <param name="announceOutsideChange">
+    /// Re-read because a write happened somewhere else: do nothing if the table
+    /// is unchanged (so text being typed survives), and say so if it changed.
+    /// </param>
+    private void RefreshVfPoints(bool announceOutsideChange = false)
     {
         if (!SupportsVfPoints || _gpu is null)
         {
@@ -108,6 +157,17 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
             _vfpPoints = [];
             DriverCurve = null;
             return;
+        }
+
+        if (announceOutsideChange)
+        {
+            if (points.SequenceEqual(_vfpPoints))
+            {
+                return;
+            }
+
+            VfpStatusText = "The table changed outside this editor (a reset, a profile, the Tuning page or a " +
+                            "stability run) — the curve, the point readout and the offset box were re-read from the card.";
         }
 
         _vfpPoints = points;
@@ -225,6 +285,7 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
     public void RebindGpu()
     {
         _gpu = _services.SelectedGpu;
+        WatchTuner();
         _plan = null;
         HasPlan = false;
         PlanText = string.Empty;
@@ -363,6 +424,10 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
         var result = _gpu.Tuner.Apply(profile);
         ApplyResultText = result.Summary;
         LastApplyFailed = !result.AllSucceeded;
+
+        // The core offset just written lives in the stored table too: show it.
+        // (The Tuning page learns of this write through GpuTuner.StateWritten.)
+        RefreshVfPoints();
     }
 
     /// <summary>

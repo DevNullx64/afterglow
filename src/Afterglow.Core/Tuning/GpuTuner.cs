@@ -158,6 +158,25 @@ public sealed class GpuTuner
     public string? GpuUuid => _gpuUuid;
 
     /// <summary>
+    /// Raised after every call that may have changed what this card runs —
+    /// profile apply, reset, per-point writes and clears, clock-lock changes —
+    /// whoever made it: a page, a hotkey, the TDR watchdog, the stability
+    /// stepper, the certifier, the V/F probe. Pages that display applied state
+    /// re-read on it, so a write made in one place never leaves another page
+    /// showing a curve or offsets the card no longer has (F-08, F-75).
+    /// Raised on the writing thread after the tuner's lock is released;
+    /// handlers must not block (marshal to the UI thread asynchronously), and
+    /// an exception in one is logged and never reaches the write path.
+    /// </summary>
+    public event Action<GpuTuner>? StateWritten;
+
+    private T Notify<T>(T result)
+    {
+        WriteNotification.Raise(StateWritten, this);
+        return result;
+    }
+
+    /// <summary>
     /// The clock lock Afterglow last applied (null = none). NVML has no getter
     /// for locked clocks, so this is Afterglow-tracked state, persisted across
     /// restarts via the applied-state file.
@@ -293,7 +312,10 @@ public sealed class GpuTuner
     /// profile assembled from <see cref="ReadCurrent"/> — which cannot see
     /// per-point offsets — can never delete a curve the user did not ask to lose.
     /// </param>
-    public ApplyResult Apply(TuningProfile profile, bool reconcileVfPoints = true)
+    public ApplyResult Apply(TuningProfile profile, bool reconcileVfPoints = true) =>
+        Notify(ApplyUnderLock(profile, reconcileVfPoints));
+
+    private ApplyResult ApplyUnderLock(TuningProfile profile, bool reconcileVfPoints)
     {
         lock (_applyLock)
         {
@@ -340,7 +362,9 @@ public sealed class GpuTuner
     }
 
     /// <summary>Returns every knob this engine owns to driver defaults.</summary>
-    public ApplyResult ResetToDefaults()
+    public ApplyResult ResetToDefaults() => Notify(ResetUnderLock());
+
+    private ApplyResult ResetUnderLock()
     {
         lock (_applyLock)
         {
@@ -449,10 +473,13 @@ public sealed class GpuTuner
     /// <summary>Writes per-point curve offsets (UI/CLI entry point; serialized with Apply).</summary>
     public KnobResult SetVfPointOffsets(IReadOnlyDictionary<int, int> offsetsMHzByIndex)
     {
+        KnobResult result;
         lock (_applyLock)
         {
-            return ApplyVfPointOffsetsCore(offsetsMHzByIndex);
+            result = ApplyVfPointOffsetsCore(offsetsMHzByIndex);
         }
+
+        return Notify(result);
     }
 
     /// <summary>
@@ -462,15 +489,15 @@ public sealed class GpuTuner
     /// </summary>
     public KnobResult ClearVfPointOffsets()
     {
+        KnobResult result;
         lock (_applyLock)
         {
-            if (!Capabilities.SupportsVfPoints || _nvapi is null)
-            {
-                return KnobResult.Fail("V/F points", "per-point curve control is not supported on this GPU/driver");
-            }
-
-            return ClearVfPointsAndVerify();
+            result = !Capabilities.SupportsVfPoints || _nvapi is null
+                ? KnobResult.Fail("V/F points", "per-point curve control is not supported on this GPU/driver")
+                : ClearVfPointsAndVerify();
         }
+
+        return Notify(result);
     }
 
     /// <summary>
@@ -817,16 +844,17 @@ public sealed class GpuTuner
     /// </summary>
     public NvmlReturn RestoreTuningLock(uint lockMHz)
     {
+        NvmlReturn rc;
         lock (_applyLock)
         {
-            var rc = _nvml.TrySetGpuLockedClocks(RangeLockFloorMHz, lockMHz);
+            rc = _nvml.TrySetGpuLockedClocks(RangeLockFloorMHz, lockMHz);
             if (rc == NvmlReturn.Success)
             {
                 _appliedLockMHz = lockMHz;
             }
-
-            return rc;
         }
+
+        return Notify(rc);
     }
 
     /// <summary>
@@ -835,16 +863,17 @@ public sealed class GpuTuner
     /// </summary>
     public NvmlReturn LockClockForProbe(uint clockMHz)
     {
+        NvmlReturn rc;
         lock (_applyLock)
         {
-            var rc = _nvml.TrySetGpuLockedClocks(clockMHz, clockMHz);
+            rc = _nvml.TrySetGpuLockedClocks(clockMHz, clockMHz);
             if (rc == NvmlReturn.Success)
             {
                 _appliedLockMHz = clockMHz;
             }
-
-            return rc;
         }
+
+        return Notify(rc);
     }
 
     /// <summary>
@@ -853,20 +882,21 @@ public sealed class GpuTuner
     /// </summary>
     public KnobResult ForceUnlock()
     {
+        NvmlReturn rc;
         lock (_applyLock)
         {
-            var rc = _nvml.TryResetGpuLockedClocks();
+            rc = _nvml.TryResetGpuLockedClocks();
             if (rc == NvmlReturn.Success)
             {
                 _appliedLockMHz = null;
             }
-
-            return rc == NvmlReturn.Success
-                ? KnobResult.Ok("clock lock", "released (explicit)")
-                : KnobResult.Fail("clock lock", rc == NvmlReturn.NoPermission
-                    ? "needs administrator rights"
-                    : rc.ToString());
         }
+
+        return Notify(rc == NvmlReturn.Success
+            ? KnobResult.Ok("clock lock", "released (explicit)")
+            : KnobResult.Fail("clock lock", rc == NvmlReturn.NoPermission
+                ? "needs administrator rights"
+                : rc.ToString()));
     }
 
     /// <summary>Sets all fans to a duty; NVAPI preferred (supports 0%), NVML fallback.</summary>
@@ -1231,6 +1261,37 @@ public static class AppliedStateStore
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // State tracking must never break an apply.
+            }
+        }
+    }
+}
+
+/// <summary>
+/// Delivers <see cref="GpuTuner.StateWritten"/>. The notification is raised
+/// from hardware-write paths — including the TDR watchdog's and the panic
+/// hotkey's resets — so one subscriber's failure must neither stop the others
+/// nor surface in the code that just wrote the GPU.
+/// </summary>
+public static class WriteNotification
+{
+    public static void Raise<T>(Action<T>? handlers, T sender)
+    {
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (var handler in handlers.GetInvocationList().Cast<Action<T>>())
+        {
+            try
+            {
+                handler(sender);
+            }
+            catch (Exception ex)
+            {
+                // Deliberately broad: a display refresh may fail any way it
+                // likes; the write already happened and must not be undone by it.
+                Log.Error("A tuning-write subscriber failed; the write itself is unaffected.", ex);
             }
         }
     }
