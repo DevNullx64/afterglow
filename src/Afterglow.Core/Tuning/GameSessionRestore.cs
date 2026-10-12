@@ -78,7 +78,7 @@ public static class GameSessionRestore
 {
     /// <summary>Reads everything the restore may need from the card the game profile is about to land on.</summary>
     public static PreGameSnapshot Capture(
-        GpuTuner tuner, uint gpuIndex, string executable, TuningProfile gameProfile, FanRestoreState? fans)
+        IGpuTuner tuner, uint gpuIndex, string executable, TuningProfile gameProfile, FanRestoreState? fans)
     {
         ArgumentNullException.ThrowIfNull(tuner);
         var current = tuner.ReadCurrent();
@@ -101,9 +101,12 @@ public static class GameSessionRestore
             GameProfile = gameProfile,
             CoreOffsetMHz = current.CoreOffsetMHz,
             MemOffsetMHz = current.MemOffsetMHz,
-            PowerLimitW = current.PowerLimitW,
+            PowerLimitW = current.PowerLimitW ?? 0,
             VoltageBoostPct = current.VoltageBoostPct,
-            LockedCoreClockMHz = current.LockedCoreClockMHz,
+            // The lock Afterglow applied, never ReadCurrent's observation: on a
+            // driver with a lock getter that can be a factory ceiling, and writing
+            // it back at game exit would make it a clamp no release can adopt.
+            LockedCoreClockMHz = tuner.AppliedLockMHz,
             TempLimitSupported = tuner.Capabilities.SupportsTempLimit,
             TempLimitC = tuner.ReadTempLimitC(),
             VfPointsSupported = tuner.Capabilities.SupportsVfPoints,

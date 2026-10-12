@@ -4,9 +4,19 @@
 
 Afterglow's attack surface is deliberately small:
 
-- **No kernel driver.** All hardware access is through NVIDIA's userland driver libraries
-  (`nvml.dll`, `nvapi64.dll`) that ship with every GeForce driver. Afterglow cannot be used
-  as a bring-your-own-vulnerable-driver (BYOVD) primitive because it doesn't bring one.
+- **No kernel driver.** All hardware access is through the vendors' own userland driver
+  libraries that ship with the graphics driver: NVIDIA's `nvml.dll` and `nvapi64.dll`, and
+  on Intel `ControlLib.dll` (IGCL) and `ze_loader.dll` (Level Zero Sysman). Afterglow cannot
+  be used as a bring-your-own-vulnerable-driver (BYOVD) primitive because it doesn't bring one.
+- **Vendor libraries load from System32 only.** `nvml.dll`, `ControlLib.dll` and
+  `ze_loader.dll` are resolved by full path through a single DllImport resolver
+  (`src/Afterglow.Core/Interop/VendorLibraryResolver.cs`); `nvapi64.dll` is pinned by
+  `[DefaultDllImportSearchPaths(DllImportSearchPath.System32)]`. None loads by bare name.
+  Default probing searches the application directory first, which in an elevated process
+  would let anyone able to drop a file beside the executable get their code loaded into it.
+  The resolver *throws* when a library is not in its installed location rather than
+  reporting it unresolved — an unresolved result hands the lookup straight back to default
+  probing — so an absent library simply fails to load and that vendor reports unavailable.
 - **No network access by default.** Afterglow has no telemetry and no accounts, and makes
   no network request on its own. The one exception is an opt-in, off-by-default update
   check: when you enable "Check for updates at startup" (or press "Check now" in

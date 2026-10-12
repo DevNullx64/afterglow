@@ -114,7 +114,17 @@ public sealed class TelemetryService : IDisposable
     /// <summary>Raised when a poll cycle throws unexpectedly; polling continues.</summary>
     public event Action<Exception>? PollError;
 
-    public SnapshotHistory HistoryFor(uint deviceIndex) => _history[deviceIndex];
+    /// <summary>
+    /// History for one device. Returns an EMPTY history rather than throwing for
+    /// an index with no poller: callers (the overlay, the metrics page) pass an
+    /// index that can outlive its device — a GPU that failed to initialise, or a
+    /// selection made before the pollers were built — and a KeyNotFoundException
+    /// from a render tick takes the window down.
+    /// </summary>
+    public SnapshotHistory HistoryFor(uint deviceIndex) =>
+        _history.TryGetValue(deviceIndex, out var history) ? history : _emptyHistory;
+
+    private readonly SnapshotHistory _emptyHistory = new(1);
 
     /// <summary>The device's history, or null when no poller exists for it (e.g. no NVIDIA GPU at all).</summary>
     public SnapshotHistory? TryHistoryFor(uint deviceIndex) =>

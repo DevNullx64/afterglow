@@ -114,8 +114,7 @@ public sealed class AppServices : IDisposable
     }
 
     /// <summary>Settings key for one GPU's fan configuration.</summary>
-    public static string FanKeyFor(GpuContext gpu) =>
-        gpu.Uuid ?? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"index:{gpu.Index}");
+    public static string FanKeyFor(GpuContext gpu) => gpu.StableKey;
 
     /// <summary>
     /// The persisted fan configuration for one GPU: its own entry when present,
@@ -260,7 +259,7 @@ public sealed class AppServices : IDisposable
         var vfCurves = new Dictionary<uint, Core.Tuning.VfCurveRecorder>();
         foreach (var gpu in manager.Gpus)
         {
-            var curveRecorder = Core.Tuning.VfCurveRecorder.ForGpu(gpu.Index, gpu.Uuid);
+            var curveRecorder = Core.Tuning.VfCurveRecorder.ForGpu(gpu.Index, gpu.Uuid, gpu.PciVendorId);
             curveRecorder.Load();
             vfCurves[gpu.Index] = curveRecorder;
         }
@@ -298,23 +297,45 @@ public sealed class AppServices : IDisposable
                     : System.IO.Path.Combine(AppPaths.FlightDir,
                         string.Create(System.Globalization.CultureInfo.InvariantCulture, $"gpu{gpu.Index}"));
 
-            // A machine crash ends every stream at once; the first stream with
-            // findings names the report (primary checked first). Each analysis
-            // is fenced on its own: whatever is in an old recording — torn,
-            // corrupted, or planted before first run (ProgramData lets standard
-            // users add files) — must not stop the app, nor the rotation below
-            // that moves the bad file out of the way (F-34).
-            foreach (var gpu in manager.Gpus)
+            // A machine crash ends every stream at once, so EVERY card's log has
+            // to be read: stopping at the first non-null result always picked the
+            // primary (iterated first) and reported ITS offsets and load state, so
+            // a stock, idle primary produced "not an overclocking failure" while a
+            // secondary card died under load. The card that was actually tuned at
+            // the time of death names the report. Each analysis is fenced on its
+            // own: whatever is in an old recording — torn, corrupted, or planted
+            // before first run — must not stop the app, nor the rotation below
+            // that moves the bad file out of the way (F-34). One System-log walk
+            // serves every card (the scope), instead of one per card before the
+            // main window exists.
+            Core.Diagnostics.CrashReport? bestReport = null;
+            using (Core.Diagnostics.CrashForensics.ShareSystemLogQueries())
             {
-                try
+                foreach (var gpu in manager.Gpus)
                 {
-                    crashReport ??= Core.Diagnostics.CrashForensics.AnalyzePreviousSession(FlightDirFor(gpu));
-                }
-                catch (Exception ex)
-                {
-                    Core.Diagnostics.Log.Warn($"Crash analysis skipped for GPU {gpu.Index}: {ex.GetType().Name}: {ex.Message}");
+                    try
+                    {
+                        var report = Core.Diagnostics.CrashForensics.AnalyzePreviousSession(
+                            FlightDirFor(gpu),
+                            string.Create(System.Globalization.CultureInfo.InvariantCulture, $"GPU {gpu.Index} — {gpu.Name}"));
+                        if (report is null)
+                        {
+                            continue;
+                        }
+
+                        report = report with { GpuIndex = gpu.Index, GpuName = gpu.Name };
+                        bestReport = bestReport is null || (report.TuningApplied && !bestReport.TuningApplied)
+                            ? report
+                            : bestReport;
+                    }
+                    catch (Exception ex)
+                    {
+                        Core.Diagnostics.Log.Warn($"Crash analysis skipped for GPU {gpu.Index}: {ex.GetType().Name}: {ex.Message}");
+                    }
                 }
             }
+
+            crashReport = bestReport;
 
             try
             {
@@ -404,20 +425,26 @@ public sealed class AppServices : IDisposable
         GameWatcher.Dispose();
         TdrWatchdog.Dispose();
 
-        // Stop the polling thread before releasing the fans: a tick arriving
-        // after the release would run the curve and take them back.
+        // Telemetry FIRST. Its SnapshotTaken subscription drives the fan curve,
+        // and stopping the fans while snapshots are still arriving let one land
+        // after the release and command the fans again — leaving the card on
+        // manual fans after exit. FrameMetrics is disposed here too because its
+        // teardown waits on PresentMon for up to two seconds, which used to sit
+        // between the fan release and the poller still feeding it.
+        FrameMetrics.Dispose();
+        ActiveCsvLogger?.Dispose();
         Telemetry.Dispose();
+
         foreach (var fans in FanControl.Values)
         {
             fans.Dispose();
         }
 
-        FrameMetrics.Dispose();
-        ActiveCsvLogger?.Dispose();
         foreach (var flightRecorder in Flights.Values)
         {
             flightRecorder.Dispose();
         }
+
         Manager?.Dispose();
     }
 }

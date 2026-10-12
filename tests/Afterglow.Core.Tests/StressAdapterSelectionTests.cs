@@ -85,7 +85,23 @@ public class StressAdapterSelectionTests
         int pick = StressAdapter.Choose(candidates, pciBusId: null, out string description);
 
         Assert.Equal(1, pick);
+        Assert.StartsWith("RTX 5090", description, StringComparison.Ordinal);
+
+        // With two candidates and no bus the pick is a guess, and says so, so a
+        // caller that must not guess (certification) can refuse it.
+        Assert.True(StressAdapter.IsUnboundGuess(description));
+    }
+
+    [Fact]
+    public void A_single_adapter_without_a_bus_is_not_a_guess()
+    {
+        var candidates = new[] { new Candidate("RTX 5090", 32L << 30, Bus: 1) };
+
+        int pick = StressAdapter.Choose(candidates, pciBusId: null, out string description);
+
+        Assert.Equal(0, pick);
         Assert.Equal("RTX 5090", description);
+        Assert.False(StressAdapter.IsUnboundGuess(description));
     }
 
     [Fact]

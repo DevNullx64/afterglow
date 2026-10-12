@@ -50,10 +50,56 @@ public sealed class VfCurveRecorder
     /// </summary>
     public uint? DeviceIndex { get; init; }
 
+    /// <summary>
+    /// Identity of the card this curve belongs to, stamped into the file and
+    /// checked on load.
+    /// <para>
+    /// Without it a plain card swap — or any session where NVML fails to
+    /// initialise and an Intel iGPU becomes GPU 0 — made the new card inherit
+    /// the old card's <c>vf-curve.json</c>. Nothing caught it: the bounds check
+    /// on load only rejects impossible numbers, and 700-1100 mV at 2000-3000 MHz
+    /// from an NVIDIA card is perfectly plausible. The foreign curve then
+    /// rendered as this card's measurement, and on NVIDIA <c>PlanUndervolt</c>
+    /// turned it into a real offset-and-lock write — in the direction that
+    /// raises clocks. <c>Add()</c> already refuses foreign LIVE samples; this
+    /// closes the same hole on the persisted path, following the rule
+    /// <c>AppliedStateStore.Load</c> uses.
+    /// </para>
+    /// </summary>
+    public string? GpuUuid { get; init; }
+
+    /// <summary>PCI vendor id of the card this curve belongs to.</summary>
+    public uint? VendorId { get; init; }
+
     /// <summary>Samples refused because they came from another card (expected: 0).</summary>
     public long ForeignSamplesIgnored { get; private set; }
 
     public long TotalSamples { get; private set; }
+
+    /// <summary>
+    /// Samples that arrived with a clock and a load reading but NO core voltage.
+    /// A V/F curve is a map of voltage against clock, so on a GPU whose driver
+    /// does not report core voltage it can never be drawn — every sample is
+    /// dropped here. Counting them is what lets the surfaces say that instead of
+    /// showing an empty chart and "collecting…" forever, which is what the
+    /// verified Intel Arc B390 (coreVoltageMv: null on every read) produced.
+    /// It is a measurement, not an assumption: the count only rises for samples
+    /// actually taken.
+    /// </summary>
+    public long SamplesMissingVoltage { get; private set; }
+
+    /// <summary>Samples that DID carry a core voltage, counted before the load
+    /// and range filters so the verdict below cannot be skewed by them.</summary>
+    public long SamplesWithVoltage { get; private set; }
+
+    /// <summary>
+    /// True once enough samples have been taken to say the voltage sensor is
+    /// absent rather than momentarily unread — no sample has ever carried a
+    /// voltage, and several have been taken. A single null read is a glitch;
+    /// a dozen in a row is a missing sensor.
+    /// </summary>
+    public bool VoltageSensorLooksAbsent => SamplesWithVoltage == 0 && SamplesMissingVoltage >= 8;
+
 
     /// <summary>Feeds one telemetry snapshot into the curve.</summary>
     public void Add(GpuSnapshot snapshot)
@@ -83,8 +129,33 @@ public sealed class VfCurveRecorder
             snapshot.CoreClockMHz is not uint mhz ||
             snapshot.GpuUtilPct is not uint load)
         {
+            // Count the specific case of "the clock and load were read, the
+            // voltage was not" — that is a missing voltage sensor, and it is the
+            // difference between a curve that has not filled in yet and one that
+            // never can.
+            if (snapshot.CoreClockMHz is not null)
+            {
+                lock (_lock)
+                {
+                    if (snapshot.CoreVoltageMv is null)
+                    {
+                        SamplesMissingVoltage++;
+                    }
+                    else
+                    {
+                        SamplesWithVoltage++;
+                    }
+                }
+            }
+
             return;
         }
+
+        lock (_lock)
+        {
+            SamplesWithVoltage++;
+        }
+
 
         if (load < MinLoadPct || mv < MinVoltageMv || mv > MaxVoltageMv || mhz < 200)
         {
@@ -146,6 +217,13 @@ public sealed class VfCurveRecorder
         {
             _bins.Clear();
             TotalSamples = 0;
+
+            // Reset BOTH counters. Clearing only the positive one let "Reset
+            // curve" flip VoltageSensorLooksAbsent true on a card that had just
+            // produced a curve — printing "this GPU's driver does not report
+            // core voltage" and refusing the probe on hardware that plainly does.
+            SamplesMissingVoltage = 0;
+            SamplesWithVoltage = 0;
         }
     }
 
@@ -218,6 +296,17 @@ public sealed class VfCurveRecorder
             return null;
         }
 
+        // An undervolt IS a core offset. On a GPU whose driver exposes no
+        // core-offset knob the plan can never be honoured, yet it was still
+        // produced and described in full confidence ("core offset -180 MHz with
+        // the clock locked at 2700 MHz"); the apply path then clamped the offset
+        // into the capability struct's 0..0 default, wrote only the clock lock,
+        // and reported no failure. Refuse to plan what cannot be applied.
+        if (caps is { SupportsCoreOffset: false } && requiredOffset != 0)
+        {
+            return null;
+        }
+
         if (requiredOffset is < -1500 or > 1500 || lockClock is < 210 or > 4500)
         {
             return null;
@@ -242,8 +331,12 @@ public sealed class VfCurveRecorder
 
     private sealed record PersistedBin(int Key, double MaxClock, double ClockSum, long Samples);
 
-    /// <summary>The on-disk shape: the owning card's identity plus its bins.</summary>
-    private sealed record PersistedCurve(string? GpuUuid, PersistedBin[] Bins);
+    /// <summary>
+    /// The on-disk shape: the owning card's identity (UUID and PCI vendor) plus
+    /// its bins. A bare <see cref="PersistedBin"/> array is still read — that is
+    /// what earlier versions wrote — under the legacy rule in <see cref="Load"/>.
+    /// </summary>
+    private sealed record PersistedCurve(string? GpuUuid, uint? VendorId, PersistedBin[] Bins);
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
 
@@ -260,10 +353,11 @@ public sealed class VfCurveRecorder
     /// and saves the curve file keyed by that card's UUID. Call
     /// <see cref="Load(string?)"/> to restore what it measured before.
     /// </summary>
-    public static VfCurveRecorder ForGpu(uint deviceIndex, string? gpuUuid) => new()
+    public static VfCurveRecorder ForGpu(uint deviceIndex, string? gpuUuid, uint? vendorId = null) => new()
     {
         DeviceIndex = deviceIndex,
         GpuUuid = gpuUuid,
+        VendorId = vendorId,
         PersistPath = PathFor(gpuUuid),
     };
 
@@ -284,7 +378,11 @@ public sealed class VfCurveRecorder
         }
 
         var keep = new string(gpuUuid.Where(char.IsLetterOrDigit).ToArray());
-        if (keep.StartsWith("GPU", StringComparison.OrdinalIgnoreCase))
+        if (keep.StartsWith("INTEL", StringComparison.OrdinalIgnoreCase))
+        {
+            keep = "i" + keep[5..]; // same strip rule as AppliedStateStore.PathFor
+        }
+        else if (keep.StartsWith("GPU", StringComparison.OrdinalIgnoreCase))
         {
             keep = keep[3..];
         }
@@ -312,25 +410,23 @@ public sealed class VfCurveRecorder
     }
 
     /// <summary>
-    /// The card this curve belongs to (NVML UUID). Stamped into the saved file;
-    /// a file stamped for a different card is refused on load. Null leaves the
-    /// recorder unidentified (demo mode, tests, callers that don't set it).
-    /// </summary>
-    public string? GpuUuid { get; init; }
-
-    /// <summary>
     /// File this recorder loads from and saves to. Null = not persisted: a
     /// <see cref="Save"/> or <see cref="Load"/> without an explicit path does
     /// nothing (an unidentified card, demo mode).
     /// </summary>
     public string? PersistPath { get; set; }
 
-    public void Save(string? path = null)
+    /// <summary>
+    /// Persists the curve. Returns false when the file was NOT written — because
+    /// it belongs to another GPU (see below) or could not be opened — so a caller
+    /// can say so rather than let the user believe their measurement was kept.
+    /// </summary>
+    public bool Save(string? path = null)
     {
         string? file = path ?? PersistPath;
         if (file is null)
         {
-            return;
+            return false;
         }
 
         try
@@ -342,11 +438,70 @@ public sealed class VfCurveRecorder
                 data = _bins.Select(kv => new PersistedBin(kv.Key, kv.Value.MaxClock, kv.Value.ClockSum, kv.Value.Samples)).ToArray();
             }
 
-            File.WriteAllText(file, JsonSerializer.Serialize(new PersistedCurve(GpuUuid, data), JsonOptions));
+            // Guard the WRITE as well as the read. The read half refuses a file
+            // stamped for another card; nothing else would stop this card from
+            // overwriting one (a `--fresh` run skips Load entirely).
+            if (File.Exists(file) && ReadIdentity(file) is { } stamp
+                && !IdentityMatches(stamp.Uuid, stamp.VendorId))
+            {
+                Diagnostics.Log.Info(
+                    $"Not overwriting the V/F curve at {file}: it belongs to another GPU.");
+                return false;
+            }
+
+            File.WriteAllText(file, JsonSerializer.Serialize(new PersistedCurve(GpuUuid, VendorId, data), JsonOptions));
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            Diagnostics.Log.Warn($"V/F curve could not be saved: {ex.Message}");
+            return false;
         }
+    }
+
+    /// <summary>
+    /// Reads just the identity stamp from a curve file. Returns null when the
+    /// file cannot be read or is the legacy unstamped array — neither is a
+    /// mismatch, so both leave the write path alone.
+    /// </summary>
+    private static (string? Uuid, uint? VendorId)? ReadIdentity(string path)
+    {
+        try
+        {
+            string text = File.ReadAllText(path);
+            if (!text.TrimStart().StartsWith('{'))
+            {
+                return null;
+            }
+
+            var envelope = JsonSerializer.Deserialize<PersistedCurve>(text, JsonOptions);
+            return envelope is null ? null : (envelope.GpuUuid, envelope.VendorId);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// True when a stamped file was written by the card this recorder serves.
+    /// A recorder with no identity of its own (the CLI's transient recorders on
+    /// a card that reports no UUID) accepts any stamp — it has nothing to
+    /// compare against, and refusing would break the single-GPU case.
+    /// </summary>
+    private bool IdentityMatches(string? fileUuid, uint? fileVendor)
+    {
+        if (GpuUuid is { Length: > 0 } mine && fileUuid is { Length: > 0 } theirs)
+        {
+            return string.Equals(mine, theirs, StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (VendorId is { } mineVendor && fileVendor is { } theirVendor)
+        {
+            return mineVendor == theirVendor;
+        }
+
+        return true;
     }
 
     public void Load(string? path = null)
@@ -359,29 +514,43 @@ public sealed class VfCurveRecorder
                 return;
             }
 
-            // Bare array: written before files were stamped. Its owner is
-            // whatever the path says — a per-card file is keyed by the UUID.
-            using var document = JsonDocument.Parse(File.ReadAllText(file));
-            string? stamp = null;
+            string text = File.ReadAllText(file);
             PersistedBin[]? data;
-            if (document.RootElement.ValueKind == JsonValueKind.Array)
+
+            // Stamped envelope, or the legacy bare array earlier versions wrote.
+            if (text.TrimStart().StartsWith('{'))
             {
-                data = document.RootElement.Deserialize<PersistedBin[]>(JsonOptions);
+                var envelope = JsonSerializer.Deserialize<PersistedCurve>(text, JsonOptions);
+                if (envelope is null)
+                {
+                    return;
+                }
+
+                if (!IdentityMatches(envelope.GpuUuid, envelope.VendorId))
+                {
+                    Diagnostics.Log.Info(
+                        $"V/F curve at {file} belongs to another GPU — not loading it for GPU {DeviceIndex}. " +
+                        "A curve measured on one card cannot plan an undervolt for another.");
+                    return;
+                }
+
+                data = envelope.Bins;
             }
             else
             {
-                var curve = document.RootElement.Deserialize<PersistedCurve>(JsonOptions);
-                stamp = curve?.GpuUuid;
-                data = curve?.Bins;
-            }
+                // An unstamped file predates per-GPU identity. It migrates for
+                // the card that plausibly wrote it — the historical single-GPU
+                // NVIDIA case — and never for an Intel identity, which cannot
+                // have written one: this branch only ever ran on NVIDIA.
+                if (VendorId is { } vendor && vendor != Stress.StressAdapter.NvidiaVendorId)
+                {
+                    Diagnostics.Log.Info(
+                        $"Ignoring the unstamped legacy V/F curve at {file} for GPU {DeviceIndex}: " +
+                        "it predates per-GPU curves and cannot have been measured on this card.");
+                    return;
+                }
 
-            if (stamp is not null && GpuUuid is not null &&
-                !string.Equals(stamp, GpuUuid, StringComparison.OrdinalIgnoreCase))
-            {
-                Diagnostics.Log.Warn(
-                    $"V/F curve file {file} belongs to GPU {stamp}, not {GpuUuid}; it was not loaded " +
-                    "(another card's measured curve must never plan this card's undervolt).");
-                return;
+                data = JsonSerializer.Deserialize<PersistedBin[]>(text, JsonOptions);
             }
 
             if (data is null)

@@ -151,10 +151,10 @@
                                         </Grid.ColumnDefinitions>
                                         <StackPanel>
                                             <TextBlock FontSize="14">
-                                                <Run Text="{Binding Application, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="   " /><Run Text="{Binding AvgFps, Mode=OneWay, StringFormat=F1}" /><Run Text=" fps avg · " /><Run Text="{Binding Low1Fps, Mode=OneWay, StringFormat=F1}" /><Run Text=" 1% low · " /><Run Text="{Binding AvgPowerW, Mode=OneWay, StringFormat=F0}" /><Run Text=" W · " /><Run Text="{Binding AvgGpuTempC, Mode=OneWay, StringFormat=F0}" /><Run Text=" °C" />
+                                                <Run Text="{Binding Application, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="   " /><Run Text="{Binding AvgFps, Mode=OneWay, StringFormat=F1}" /><Run Text=" fps avg · " /><Run Text="{Binding Low1Fps, Mode=OneWay, StringFormat=F1}" /><Run Text=" 1% low · " /><Run Text="{Binding AvgPowerW, Mode=OneWay, StringFormat=F0, TargetNullValue='—'}" /><Run Text=" W · " /><Run Text="{Binding AvgGpuTempC, Mode=OneWay, StringFormat=F0, TargetNullValue='—'}" /><Run Text=" °C" />
                                             </TextBlock>
                                             <TextBlock Style="{StaticResource Caption}" Margin="0,2,0,0">
-                                                <Run Text="core " /><Run Text="{Binding CoreOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · mem " /><Run Text="{Binding MemOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · " /><Run Text="{Binding DurationSeconds, Mode=OneWay}" /><Run Text=" s · " /><Run Text="{Binding Frames, Mode=OneWay}" /><Run Text=" frames" />
+                                                <Run Text="core " /><Run Text="{Binding CoreOffsetMHz, Mode=OneWay, TargetNullValue='—'}" /><Run Text=" MHz · mem " /><Run Text="{Binding MemOffsetMHz, Mode=OneWay, TargetNullValue='—'}" /><Run Text=" MHz · " /><Run Text="{Binding DurationSeconds, Mode=OneWay}" /><Run Text=" s · " /><Run Text="{Binding Frames, Mode=OneWay}" /><Run Text=" frames" />
                                             </TextBlock>
                                         </StackPanel>
                                         <TextBlock Grid.Column="1" Text="{Binding StartedAt, Mode=OneWay, StringFormat=g}"

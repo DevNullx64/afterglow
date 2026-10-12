@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Free, open-source overclocking, undervolting, fan control and monitoring for NVIDIA RTX graphics cards.</b><br/>
-  No kernel driver, no telemetry, no account.
+  Intel Arc support in beta. No kernel driver, no telemetry, no account.
 </p>
 
 <p align="center">
@@ -75,14 +75,30 @@ The full list, with how each feature works and where it was tested, is in
 - **No kernel driver.** The popular tools install one, and those drivers have a history of
   security holes: MSI Afterburner's `RTCore64.sys` has had several CVEs, one used by
   ransomware to switch off antivirus, and it is listed on [loldrivers.io](https://www.loldrivers.io/drivers/e32bc3da-4db1-4858-a62c-6fbe4db6afbd/)
-  and has run into anti-cheat systems. Afterglow uses only the user-mode interfaces that
-  come with NVIDIA's own driver.
+  and has run into anti-cheat systems. Afterglow uses only the documented user-mode
+  interfaces that come with the graphics driver: NVML and NVAPI from NVIDIA, IGCL and
+  Level Zero from Intel.
 - **Open source** under the MIT licence. You can read exactly what it does to your card.
 - **Honest.** If your card or driver doesn't support something, Afterglow says so instead of
   showing a made-up number. Limits are listed below, and measurements come with their method.
 - **Light.** Sitting in the tray it uses about 130 MiB of memory and about 0.3 % of one CPU
   core on the test machine, almost all of that being the driver answering the
   once-a-second sensor read ([docs/performance.md](docs/performance.md)).
+
+## Intel Arc (beta)
+
+The same app also runs on Intel GPUs, through Intel's own documented interfaces. Every
+feature is checked against your exact device before it appears, so you only see what
+your card and driver actually support.
+
+On the one Intel GPU it has been verified on (an Arc B390 in a handheld), you get live
+monitoring, the frequency clamp (Intel's driver can report it back, so every change is
+confirmed), the full stability lab, profiles with certification and FPS capture. That
+device has no temperature sensors, no fan control, no power-limit control and no clock
+offsets, and Afterglow says so instead of guessing. Discrete Arc cards will likely offer
+more. If you have one, please run `afterglow-cli selftest` and post the output in an
+issue: your driver will answer differently than the one it was tested on. The details
+are in [docs/research/intel-driver-apis.md](docs/research/intel-driver-apis.md).
 
 ## How it compares
 
@@ -112,7 +128,7 @@ Corrections are welcome.
 1. **Install.** Download `Afterglow-x.y.z-setup.exe` from
    [Releases](../../releases/latest) and run it. Or take the portable zip, unzip it anywhere
    and run `Afterglow.exe` (keep the folder together). Windows 10 or 11, 64-bit, with NVIDIA
-   driver 555 or newer. Nothing else to install.
+   driver 555 or newer (or a current Intel Arc driver). Nothing else to install.
 2. **Accept the admin prompt.** Changing clocks, power and fans needs administrator rights,
    as it does for every tool like this. If you say no, Afterglow still runs and shows
    everything; it just can't change anything.
@@ -131,7 +147,8 @@ against.
 
 ## Good to know
 
-- **NVIDIA only**, RTX 20 series and newer recommended. Tested most on RTX 50 (an RTX 5090).
+- **Made for NVIDIA RTX 20 series and newer**, tested most on RTX 50 (an RTX 5090).
+  Intel Arc support is in beta and verified on one device so far (see above).
 - **No hot-spot temperature on RTX 50.** NVIDIA blocks it in every public interface; tools
   that show it read hardware registers through a kernel driver, which Afterglow doesn't
   have. Memory junction temperature does work and is shown.

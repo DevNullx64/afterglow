@@ -43,3 +43,13 @@ repository; it is credited here as the reference these layouts were derived
 from, and its license is **unconfirmed**. (The earlier, broken 80+23 layout
 Afterglow once used — the one behind the retracted "RTX 50 blocks the curve
 interfaces" claim — was the NvAPIWrapper/LHM-style layout, not nvapioc's.)
+
+The IGCL and Level Zero Sysman structure layouts in
+`Afterglow.Core/Interop/Igcl` and `Afterglow.Core/Interop/LevelZero` were
+transcribed field-for-field from Intel's own published headers — `igcl_api.h`
+(Intel Graphics Control Library, MIT) and `zes_api.h` (oneAPI Level Zero, MIT) —
+and are pinned by unit tests against compiler record-layout dumps of those
+headers. No Intel code is copied or linked; both runtime libraries
+(`ControlLib.dll`, `ze_loader.dll`) ship with the Intel graphics driver and are
+loaded from System32 at run time. See `docs/research/intel-driver-apis.md` for
+the per-interface provenance table and the dump procedure.

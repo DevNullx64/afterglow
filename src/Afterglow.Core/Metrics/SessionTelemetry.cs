@@ -2,8 +2,12 @@ using Afterglow.Core.Telemetry;
 
 namespace Afterglow.Core.Metrics;
 
-/// <summary>Board power and temperatures averaged over one capture session.</summary>
-public readonly record struct SessionTelemetryAverages(double PowerW, double GpuTempC, double MemJunctionC, int Samples);
+/// <summary>
+/// Board power and temperatures averaged over one capture session. Each average
+/// is null when its sensor never read during the session: a card without a
+/// memory-junction sensor must export "—", not a measured 0 °C.
+/// </summary>
+public readonly record struct SessionTelemetryAverages(double? PowerW, double? GpuTempC, double? MemJunctionC, int Samples);
 
 /// <summary>
 /// The telemetry half of a session report. FPS capture is PresentMon/ETW and
@@ -15,9 +19,11 @@ public static class SessionTelemetry
 {
     /// <summary>
     /// Averages of the device's snapshots taken at or after <paramref name="since"/>.
-    /// Zero samples (all averages 0) when the device has no history — e.g. no
-    /// NVIDIA GPU, where the lookup used to throw KeyNotFoundException and leave
-    /// the capture impossible to stop (F-18).
+    /// Zero samples (all averages null) when the device has no history — e.g. no
+    /// supported GPU, where the lookup used to throw KeyNotFoundException and
+    /// leave the capture impossible to stop (F-18). Each metric keeps its own
+    /// counter, advanced only when that sensor actually read: one shared counter
+    /// added 0 to a sum and 1 to its divisor for every tick a sensor was absent.
     /// </summary>
     public static SessionTelemetryAverages Since(TelemetryService telemetry, uint deviceIndex, DateTimeOffset since)
     {
@@ -27,10 +33,8 @@ public static class SessionTelemetry
             return default;
         }
 
-        double power = 0;
-        double gpuTemp = 0;
-        double memTemp = 0;
-        int samples = 0;
+        double power = 0, gpuTemp = 0, memTemp = 0;
+        int samples = 0, powerSamples = 0, gpuTempSamples = 0, memTempSamples = 0;
         foreach (var snapshot in history.GetAll())
         {
             if (snapshot.Timestamp < since)
@@ -38,14 +42,30 @@ public static class SessionTelemetry
                 continue;
             }
 
-            power += snapshot.PowerW ?? 0;
-            gpuTemp += snapshot.GpuTempC ?? 0;
-            memTemp += snapshot.MemJunctionTempC ?? 0;
             samples++;
+            if (snapshot.PowerW is { } w)
+            {
+                power += w;
+                powerSamples++;
+            }
+
+            if (snapshot.GpuTempC is { } t)
+            {
+                gpuTemp += t;
+                gpuTempSamples++;
+            }
+
+            if (snapshot.MemJunctionTempC is { } mj)
+            {
+                memTemp += mj;
+                memTempSamples++;
+            }
         }
 
-        return samples == 0
-            ? default
-            : new SessionTelemetryAverages(power / samples, gpuTemp / samples, memTemp / samples, samples);
+        return new SessionTelemetryAverages(
+            powerSamples > 0 ? power / powerSamples : null,
+            gpuTempSamples > 0 ? gpuTemp / gpuTempSamples : null,
+            memTempSamples > 0 ? memTemp / memTempSamples : null,
+            samples);
     }
 }

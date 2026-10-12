@@ -113,3 +113,27 @@ feature, with the method behind it and where it has been verified.
 - Crash recovery: an unclean shutdown with tuning applied is detected at the next start
 - Unlimited named profiles as portable JSON; scriptable CLI (`afterglow-cli`) for automation
 - Tray mode, start-with-Windows, start-minimized
+
+## Intel Arc (beta)
+
+One Afterglow, two vendors: since 1.3.0-beta, the app also drives Intel GPUs through
+Intel's documented userland stacks — **IGCL** (the Intel Graphics Control Library, the
+API Arc Control was built on) for control and telemetry, with **Level Zero Sysman** as a
+second read-only source. Every capability is probed live on your exact device before the
+UI exposes it; docs/research/intel-driver-apis.md records each interface, its source,
+and what was verified on real hardware (an Arc B390 iGPU in a OneXPlayer 3 handheld).
+
+Working on the verified device: live monitoring (clocks, watts from the driver's energy
+counters, utilization, shared-memory budget, energy since driver load), the **frequency clamp**
+as a verified write path (IGCL has a real readback getter, so clamp applies and releases
+report "(verified)" — something NVML's lock cannot do), the full stability lab (burn
+test, transition/excursion patterns, and a VRAM test that detects unified memory and
+honestly tests the shared budget instead of pretending dedicated VRAM exists), profiles
+with certification, FPS capture, and the multi-vendor `selftest`. Honestly absent *on
+that device* (each probed, not assumed): temperature sensors, fan control (EC-owned on
+handhelds), power-limit writes (no documented userland path answers; the clamp is the
+supported lever and the package budget is shared with the CPU), offsets/voltage/V-F
+control. A power-limit write path is implemented for hardware whose driver reports the
+knob — expected on discrete Arc, awaiting field confirmation. **Discrete Arc owners
+(B-series especially): run `afterglow-cli selftest` and paste the output into a GitHub
+issue** — your driver will answer differently than the verified iGPU's.

@@ -28,7 +28,7 @@ public class SessionTelemetryTests
         var averages = SessionTelemetry.Since(telemetry, deviceIndex: 0, DateTimeOffset.MinValue);
 
         Assert.Equal(0, averages.Samples);
-        Assert.Equal(0, averages.PowerW);
+        Assert.Null(averages.PowerW);
     }
 
     [Fact]
@@ -46,9 +46,29 @@ public class SessionTelemetryTests
         var averages = SessionTelemetry.Since(telemetry, deviceIndex: 1, start);
 
         Assert.Equal(2, averages.Samples);
-        Assert.Equal(350, averages.PowerW, precision: 6);
-        Assert.Equal(65, averages.GpuTempC, precision: 6);
-        Assert.Equal(85, averages.MemJunctionC, precision: 6);
+        Assert.Equal(350, averages.PowerW!.Value, precision: 6);
+        Assert.Equal(65, averages.GpuTempC!.Value, precision: 6);
+        Assert.Equal(85, averages.MemJunctionC!.Value, precision: 6);
+    }
+
+    [Fact]
+    public void Each_metric_averages_only_the_ticks_its_sensor_read_and_a_silent_one_is_null()
+    {
+        using var telemetry = new TelemetryService([new NoSource(1)], TimeSpan.FromSeconds(1));
+        var history = telemetry.TryHistoryFor(1)!;
+        var start = DateTimeOffset.UtcNow;
+
+        // Power read on two ticks of three; memory junction never read.
+        history.Add(new GpuSnapshot { Timestamp = start, DeviceIndex = 1, PowerW = 300, GpuTempC = 60 });
+        history.Add(new GpuSnapshot { Timestamp = start.AddSeconds(1), DeviceIndex = 1, GpuTempC = 70 });
+        history.Add(new GpuSnapshot { Timestamp = start.AddSeconds(2), DeviceIndex = 1, PowerW = 400, GpuTempC = 80 });
+
+        var averages = SessionTelemetry.Since(telemetry, deviceIndex: 1, start);
+
+        Assert.Equal(3, averages.Samples);
+        Assert.Equal(350, averages.PowerW!.Value, precision: 6); // (300 + 400) / 2, not / 3
+        Assert.Equal(70, averages.GpuTempC!.Value, precision: 6);
+        Assert.Null(averages.MemJunctionC);                       // never read: "—", not 0 °C
     }
 
     [Fact]

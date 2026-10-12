@@ -119,9 +119,11 @@ public partial class OverlayWindow : Window
             ? Visibility.Visible
             : Visibility.Collapsed;
 
-        if (showFps)
+        // Pattern-matched rather than null-forgiven: the compiler proves the
+        // value is there instead of us asserting it across two statements.
+        if (showFps && stats is { } current)
         {
-            var (app, s) = stats!.Value;
+            var (app, s) = current;
             FpsRow.Text = $"{s.AverageFps:F0} FPS  {app.Application}";
             LowsRow.Text = $"1% {s.Low1Fps:F0}   0.1% {s.Low01Fps:F0}   {s.AverageFrametimeMs:F1} ms";
             if (_settings.ShowFrametimeGraph)

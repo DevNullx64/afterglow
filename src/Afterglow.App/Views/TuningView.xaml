@@ -18,78 +18,84 @@
                 <StackPanel>
 
                     <TextBlock Text="Tuning" Style="{StaticResource PageTitle}" />
-                    <TextBlock Style="{StaticResource PageSubtitle}"
-                               Text="Every range comes from the driver for this exact GPU. Changes take effect when you press Apply, and each one is read back to confirm it landed." />
+                    <TextBlock Style="{StaticResource PageSubtitle}" Text="{Binding PageSubtitle}" />
 
                     <ContentControl Style="{StaticResource WarnBanner}" Content="{Binding TuneGateText}" Margin="0,16,0,0"
                                     Visibility="{Binding CanTune, Converter={x:Static views:Converters.InverseBoolToVisibility}}" />
 
                     <!-- Clocks and power: one card, one row per knob -->
-                    <Border Style="{StaticResource Card}" Margin="0,20,0,0" Padding="16,8">
+                    <Border Style="{StaticResource Card}" Margin="0,20,0,0" Padding="16,8"
+                            Visibility="{Binding ShowClocksCard, Converter={x:Static views:Converters.BoolToVisibility}}">
                         <StackPanel>
-                            <Grid Margin="0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="220" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="130" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="Core clock offset" Style="{StaticResource SectionTitle}" />
-                                    <TextBlock Style="{StaticResource FieldHint}">
-                                        <Run Text="{Binding Capabilities.CoreOffsetMinMHz, Mode=OneWay}" /><Run Text=" to +" /><Run Text="{Binding Capabilities.CoreOffsetMaxMHz, Mode=OneWay}" /><Run Text=" MHz" />
-                                    </TextBlock>
-                                </StackPanel>
-                                <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Margin="12,0,20,0"
-                                        AutomationProperties.Name="Core clock offset, megahertz"
-                                        Minimum="{Binding Capabilities.CoreOffsetMinMHz}" Maximum="{Binding Capabilities.CoreOffsetMaxMHz}"
-                                        Value="{Binding CoreOffset}" TickFrequency="5" IsSnapToTickEnabled="True"
-                                        IsEnabled="{Binding CanTune}" />
-                                <TextBlock Grid.Column="2" Text="{Binding CoreOffsetLabel}" Style="{StaticResource ValueLabel}" />
-                            </Grid>
+                            <StackPanel Visibility="{Binding ShowCoreOffset, Converter={x:Static views:Converters.BoolToVisibility}}">
+                                <Grid Margin="0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="220" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="130" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Core clock offset" Style="{StaticResource SectionTitle}" />
+                                        <TextBlock Style="{StaticResource FieldHint}">
+                                            <Run Text="{Binding Capabilities.CoreOffsetMinMHz, Mode=OneWay}" /><Run Text=" to +" /><Run Text="{Binding Capabilities.CoreOffsetMaxMHz, Mode=OneWay}" /><Run Text=" MHz" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Margin="12,0,20,0"
+                                            AutomationProperties.Name="Core clock offset, megahertz"
+                                            Minimum="{Binding Capabilities.CoreOffsetMinMHz}" Maximum="{Binding Capabilities.CoreOffsetMaxMHz}"
+                                            Value="{Binding CoreOffset}" TickFrequency="5" IsSnapToTickEnabled="True"
+                                            IsEnabled="{Binding CanTune}" />
+                                    <TextBlock Grid.Column="2" Text="{Binding CoreOffsetLabel}" Style="{StaticResource ValueLabel}" />
+                                </Grid>
+                            </StackPanel>
 
-                            <Separator />
+                            <StackPanel Visibility="{Binding ShowMemOffset, Converter={x:Static views:Converters.BoolToVisibility}}">
+                                <Separator />
 
-                            <Grid Margin="0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="220" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="130" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="Memory clock offset" Style="{StaticResource SectionTitle}" />
-                                    <TextBlock Style="{StaticResource FieldHint}">
-                                        <Run Text="{Binding Capabilities.MemOffsetMinMHz, Mode=OneWay}" /><Run Text=" to +" /><Run Text="{Binding Capabilities.MemOffsetMaxMHz, Mode=OneWay}" /><Run Text=" MHz · +500 = +1 Gbps" />
-                                    </TextBlock>
-                                </StackPanel>
-                                <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Margin="12,0,20,0"
-                                        AutomationProperties.Name="Memory clock offset, megahertz"
-                                        Minimum="{Binding Capabilities.MemOffsetMinMHz}" Maximum="{Binding Capabilities.MemOffsetMaxMHz}"
-                                        Value="{Binding MemOffset}" TickFrequency="50" IsSnapToTickEnabled="True"
-                                        IsEnabled="{Binding CanTune}" />
-                                <TextBlock Grid.Column="2" Text="{Binding MemOffsetLabel}" Style="{StaticResource ValueLabel}" />
-                            </Grid>
+                                <Grid Margin="0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="220" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="130" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Memory clock offset" Style="{StaticResource SectionTitle}" />
+                                        <TextBlock Style="{StaticResource FieldHint}">
+                                            <Run Text="{Binding Capabilities.MemOffsetMinMHz, Mode=OneWay}" /><Run Text=" to +" /><Run Text="{Binding Capabilities.MemOffsetMaxMHz, Mode=OneWay}" /><Run Text=" MHz · +500 = +1 Gbps" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Margin="12,0,20,0"
+                                            AutomationProperties.Name="Memory clock offset, megahertz"
+                                            Minimum="{Binding Capabilities.MemOffsetMinMHz}" Maximum="{Binding Capabilities.MemOffsetMaxMHz}"
+                                            Value="{Binding MemOffset}" TickFrequency="50" IsSnapToTickEnabled="True"
+                                            IsEnabled="{Binding CanTune}" />
+                                    <TextBlock Grid.Column="2" Text="{Binding MemOffsetLabel}" Style="{StaticResource ValueLabel}" />
+                                </Grid>
+                            </StackPanel>
 
-                            <Separator />
+                            <StackPanel Visibility="{Binding ShowPowerLimit, Converter={x:Static views:Converters.BoolToVisibility}}">
+                                <Separator />
 
-                            <Grid Margin="0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="220" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="130" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="Power limit" Style="{StaticResource SectionTitle}" />
-                                    <TextBlock Style="{StaticResource FieldHint}">
-                                        <Run Text="{Binding Capabilities.PowerLimitMinW, Mode=OneWay, StringFormat=F0}" /><Run Text=" – " /><Run Text="{Binding Capabilities.PowerLimitMaxW, Mode=OneWay, StringFormat=F0}" /><Run Text=" W" />
-                                    </TextBlock>
-                                </StackPanel>
-                                <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Margin="12,0,20,0"
-                                        AutomationProperties.Name="Power limit, watts"
-                                        Minimum="{Binding Capabilities.PowerLimitMinW}" Maximum="{Binding Capabilities.PowerLimitMaxW}"
-                                        Value="{Binding PowerLimit}" TickFrequency="5" IsSnapToTickEnabled="True"
-                                        IsEnabled="{Binding CanTune}" />
-                                <TextBlock Grid.Column="2" Text="{Binding PowerLimitLabel}" Style="{StaticResource ValueLabel}" />
-                            </Grid>
+                                <Grid Margin="0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="220" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="130" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Power limit" Style="{StaticResource SectionTitle}" />
+                                        <TextBlock Style="{StaticResource FieldHint}">
+                                            <Run Text="{Binding Capabilities.PowerLimitMinW, Mode=OneWay, StringFormat=F0}" /><Run Text=" – " /><Run Text="{Binding Capabilities.PowerLimitMaxW, Mode=OneWay, StringFormat=F0}" /><Run Text=" W" />
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Margin="12,0,20,0"
+                                            AutomationProperties.Name="Power limit, watts"
+                                            Minimum="{Binding Capabilities.PowerLimitMinW}" Maximum="{Binding Capabilities.PowerLimitMaxW}"
+                                            Value="{Binding PowerLimit}" TickFrequency="5" IsSnapToTickEnabled="True"
+                                            IsEnabled="{Binding CanTune}" />
+                                    <TextBlock Grid.Column="2" Text="{Binding PowerLimitLabel}" Style="{StaticResource ValueLabel}" />
+                                </Grid>
+                            </StackPanel>
 
                             <StackPanel Visibility="{Binding Capabilities.SupportsVoltageBoost, Converter={x:Static views:Converters.BoolToVisibility}}">
                                 <Separator />
@@ -113,8 +119,9 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Clock lock / undervolt -->
-                    <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <!-- Clock lock / undervolt (a frequency clamp on Intel) -->
+                    <Border Style="{StaticResource Card}" Margin="0,12,0,0"
+                            Visibility="{Binding ShowClockLock, Converter={x:Static views:Converters.BoolToVisibility}}">
                         <StackPanel>
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -122,9 +129,8 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Margin="0,0,24,0">
-                                    <TextBlock Text="Clock lock (undervolt)" Style="{StaticResource SectionTitle}" />
-                                    <TextBlock Style="{StaticResource SectionDescription}"
-                                               Text="Caps boost at a target clock while a positive core offset shifts the V/F curve, so the GPU reaches that clock at a lower voltage. The documented-API way to undervolt RTX 50." />
+                                    <TextBlock Text="{Binding ClockLockTitle}" Style="{StaticResource SectionTitle}" />
+                                    <TextBlock Text="{Binding ClockLockDescription}" Style="{StaticResource SectionDescription}" />
                                 </StackPanel>
                                 <CheckBox Grid.Column="1" Style="{StaticResource ToggleSwitch}" VerticalAlignment="Center"
                                           AutomationProperties.Name="Clock lock"
@@ -140,7 +146,7 @@
                                 <TextBlock Text="Target max clock" Style="{StaticResource FieldLabel}" />
                                 <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Margin="12,0,20,0"
                                         AutomationProperties.Name="Clock lock target, megahertz"
-                                        Minimum="1000" Maximum="{Binding Capabilities.MaxCoreClockMHz}"
+                                        Minimum="{Binding LockClockSliderMin}" Maximum="{Binding Capabilities.MaxCoreClockMHz}"
                                         Value="{Binding LockClock}" TickFrequency="15" IsSnapToTickEnabled="True"
                                         IsEnabled="{Binding CanTune}" />
                                 <TextBlock Grid.Column="2" Text="{Binding LockClockLabel}" Style="{StaticResource ValueLabel}" />
@@ -148,8 +154,9 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Undervolt presets -->
-                    <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <!-- Undervolt presets (they need both the core offset and the lock) -->
+                    <Border Style="{StaticResource Card}" Margin="0,12,0,0"
+                            Visibility="{Binding ShowUndervoltWizard, Converter={x:Static views:Converters.BoolToVisibility}}">
                         <StackPanel>
                             <TextBlock Text="Undervolt wizard" Style="{StaticResource SectionTitle}" />
                             <TextBlock Style="{StaticResource SectionDescription}"
@@ -174,7 +181,8 @@
                         </StackPanel>
                     </Border>
 
-                    <TextBlock Text="{Binding TempLimitNote}" Style="{StaticResource Footnote}" Margin="2,12,0,0" />
+                    <TextBlock Text="{Binding PowerLimitNote}" Style="{StaticResource Footnote}" Margin="2,12,0,0" />
+                    <TextBlock Text="{Binding TempLimitNote}" Style="{StaticResource Footnote}" />
                     <TextBlock Style="{StaticResource Footnote}"
                                Text="Applied values last until a reboot or driver reset. To restore them at startup: save them as a profile, test it on the Stability page, mark it stable on the Profiles page, then pick it under Settings → Apply at startup. The fan mode and curve are saved and restored on their own." />
 

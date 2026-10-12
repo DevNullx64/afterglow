@@ -80,7 +80,7 @@ public partial class MetricsViewModel : ObservableObject
     {
         if (_compareA is { } a && _compareB is { } b)
         {
-            Clipboard.SetText(SessionCompare.ToMarkdown(a, b));
+            ClipboardSafe.Copy(SessionCompare.ToMarkdown(a, b));
         }
     }
 
@@ -89,7 +89,7 @@ public partial class MetricsViewModel : ObservableObject
     {
         if (SessionHistory.Count > 0)
         {
-            Clipboard.SetText(SessionReportStore.ToMarkdown([.. SessionHistory]));
+            ClipboardSafe.Copy(SessionReportStore.ToMarkdown([.. SessionHistory]));
         }
     }
 
@@ -102,6 +102,9 @@ public partial class MetricsViewModel : ObservableObject
         }
     }
 
+    /// <summary>The GPU the running capture was started on (see ToggleCapture).</summary>
+    private Core.Hardware.GpuContext? _captureGpu;
+
     private void RecordSession()
     {
         int duration = (int)(DateTimeOffset.Now - _captureStartedAt).TotalSeconds;
@@ -110,20 +113,28 @@ public partial class MetricsViewModel : ObservableObject
             return;
         }
 
-        // FPS capture needs no NVIDIA GPU; with none there is no history for
-        // device 0, and a throw here would leave the capture unstoppable (F-18).
+        // FPS capture needs no supported GPU; with none there is no history
+        // for the device, and a throw here would leave the capture unstoppable
+        // (F-18). The averages come from the card the capture started on.
+        var captureGpu = _captureGpu ?? _services.SelectedGpu;
         var telemetry = Core.Metrics.SessionTelemetry.Since(
-            _services.Telemetry, _services.SelectedGpu?.Index ?? 0, _captureStartedAt);
+            _services.Telemetry, captureGpu?.Index ?? 0, _captureStartedAt);
 
-        int core = 0;
-        int mem = 0;
-        if (_services.SelectedGpu is { } gpu)
+        // The capture's card, not the selector's: the selector can move to
+        // another GPU mid-game, and this report used to stamp that card's
+        // offsets under the first card's name and averages. And null, not 0,
+        // for a knob the card does not have — an Arc session was exporting
+        // "core 0 / mem 0 MHz" for offsets it cannot apply.
+        int? core = null;
+        int? mem = null;
+        if (captureGpu is { } gpu)
         {
             try
             {
                 var current = gpu.Tuner.ReadCurrent();
-                core = current.CoreOffsetMHz;
-                mem = current.MemOffsetMHz;
+                var caps = gpu.Tuner.Capabilities;
+                core = caps.SupportsCoreOffset ? current.CoreOffsetMHz : null;
+                mem = caps.SupportsMemOffset ? current.MemOffsetMHz : null;
             }
             catch (InvalidOperationException)
             {
@@ -133,6 +144,8 @@ public partial class MetricsViewModel : ObservableObject
         var report = new SessionReport
         {
             Application = last.App,
+            GpuName = captureGpu?.Name,
+            GpuUuid = captureGpu?.Uuid,
             StartedAt = _captureStartedAt,
             DurationSeconds = duration,
             AvgFps = last.Stats.AverageFps,
@@ -228,6 +241,11 @@ public partial class MetricsViewModel : ObservableObject
             CaptureRunning = true;
             _captureStartedAt = DateTimeOffset.Now;
             _lastTargetStats = null;
+
+            // Bind the capture to the card selected when it STARTED. Reading the
+            // selector again at Stop attributed a whole session's sensor averages
+            // to whichever card the user had switched to since.
+            _captureGpu = _services.SelectedGpu;
             CaptureStatusText = "Capturing present events for all processes (ETW).";
         }
         else
@@ -260,10 +278,18 @@ public partial class MetricsViewModel : ObservableObject
         var stats = _services.FrameMetrics.GetTargetStats();
         if (stats is null)
         {
+            // Clear the numbers too. Blanking only the header left the last
+            // app's FPS, percentiles, frametimes and graph on screen under
+            // "No presenting app detected yet" — a frozen reading that looks
+            // live, and the one thing this app must never show. The same shape
+            // of bug had already been fixed in two other places; this was the
+            // third consumer of the same null.
             AppText = "No presenting app detected yet";
             PresentModeText = string.Empty;
+            ClearFrameStats();
             return;
         }
+
 
         var (app, s) = stats.Value;
         _lastTargetStats = (app.Application, s);
@@ -278,6 +304,26 @@ public partial class MetricsViewModel : ObservableObject
         MaxFrametimeText = $"{s.MaxFrametimeMs:F1} ms";
         FrameCountText = $"{s.FrameCount:N0} frames in window";
         FrametimeSeries = _services.FrameMetrics.GetTargetFrametimes(600);
+    }
+
+    /// <summary>Blanks every measured frame statistic — used whenever there is
+    /// nothing being measured, so no stale number survives on screen.</summary>
+    private void ClearFrameStats()
+    {
+        // Display only. _lastTargetStats is the completed capture's RECORD, and
+        // RecordSession() refuses to write a session without it — nulling it here
+        // meant a game that quit two seconds before the user pressed Stop threw
+        // the whole measurement away with no message. ToggleCapture already
+        // resets it per capture.
+        AvgFpsText = "—";
+        P1Text = "—";
+        P01Text = "—";
+        Low1Text = "—";
+        Low01Text = "—";
+        AvgFrametimeText = "—";
+        MaxFrametimeText = "—";
+        FrameCountText = string.Empty;
+        FrametimeSeries = [];
     }
 
     private void RefreshDemo()

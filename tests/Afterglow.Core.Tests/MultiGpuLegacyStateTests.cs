@@ -11,6 +11,8 @@ namespace Afterglow.Core.Tests;
 /// it, or retire it — or card A's tracked clock lock becomes card B's on the
 /// next launch, a silent range lock nobody applied to B (F-14, F-54, F-59).
 /// The earlier tests used one UUID throughout, so none of this was covered.
+/// A card's first read is <see cref="AppliedStateStore.LoadOrAdoptLegacy"/> (its tuner
+/// starting); <see cref="AppliedStateStore.Load"/> reads only the card's own file.
 /// </summary>
 [Collection("AppPaths")]
 public sealed class MultiGpuLegacyStateTests : IDisposable
@@ -61,8 +63,9 @@ public sealed class MultiGpuLegacyStateTests : IDisposable
         WriteUnstampedLegacyRecord();
         AppliedStateStore.DetectedGpuCount = 2;
 
-        Assert.Null(AppliedStateStore.Load(UuidA));
-        Assert.Null(AppliedStateStore.Load(UuidB));
+        Assert.Null(AppliedStateStore.LoadOrAdoptLegacy(UuidA, UuidA));
+        Assert.Null(AppliedStateStore.LoadOrAdoptLegacy(UuidB, UuidB));
+        Assert.True(File.Exists(AppPaths.AppliedStateFile));
 
         // Still visible to the crash scan: it was not a clean shutdown.
         Assert.Contains(AppliedStateStore.LoadAll(), s => !s.CleanShutdown && s.LockedCoreClockMHz == 2800u);
@@ -74,6 +77,8 @@ public sealed class MultiGpuLegacyStateTests : IDisposable
         WriteUnstampedLegacyRecord();
         AppliedStateStore.DetectedGpuCount = 1;
 
+        Assert.Equal(2800u, AppliedStateStore.LoadOrAdoptLegacy(UuidA, UuidA)!.LockedCoreClockMHz);
+        Assert.False(File.Exists(AppPaths.AppliedStateFile));
         Assert.Equal(2800u, AppliedStateStore.Load(UuidA)!.LockedCoreClockMHz);
     }
 
@@ -82,9 +87,9 @@ public sealed class MultiGpuLegacyStateTests : IDisposable
     {
         WriteLegacyRecordOfCardA();
 
-        // GpuTuner's constructor adopts the tracked lock from exactly this read.
-        Assert.Null(AppliedStateStore.Load(UuidB));
-        Assert.Equal(2800u, AppliedStateStore.Load(UuidA)!.LockedCoreClockMHz);
+        // The tuner adopts its tracked lock from exactly this first read.
+        Assert.Null(AppliedStateStore.LoadOrAdoptLegacy(UuidB, UuidB));
+        Assert.Equal(2800u, AppliedStateStore.LoadOrAdoptLegacy(UuidA, UuidA)!.LockedCoreClockMHz);
     }
 
     [Fact]
@@ -103,10 +108,10 @@ public sealed class MultiGpuLegacyStateTests : IDisposable
 
         // Card A's record is still card A's, and nothing is reported twice.
         Assert.True(File.Exists(AppPaths.AppliedStateFile));
-        Assert.Equal(2800u, AppliedStateStore.Load(UuidA)!.LockedCoreClockMHz);
         var all = AppliedStateStore.LoadAll();
         Assert.Equal(2, all.Count);
         Assert.Single(all, s => s.LockedCoreClockMHz == 2800u);
+        Assert.Equal(2800u, AppliedStateStore.LoadOrAdoptLegacy(UuidA, UuidA)!.LockedCoreClockMHz);
     }
 
     [Fact]
@@ -118,7 +123,8 @@ public sealed class MultiGpuLegacyStateTests : IDisposable
         AppliedStateStore.RecordPending("card B profile", UuidB);
 
         var b = AppliedStateStore.Load(UuidB)!;
-        Assert.True(b.Pending);
+        Assert.False(b.AllKnobsSucceeded);
+        Assert.False(b.CleanShutdown);
         Assert.Null(b.LockedCoreClockMHz);
     }
 
@@ -130,7 +136,7 @@ public sealed class MultiGpuLegacyStateTests : IDisposable
         AppliedStateStore.RecordFans(null, null, UuidB);
 
         Assert.False(File.Exists(AppliedStateStore.PathFor(UuidB)));
-        Assert.Equal(2800u, AppliedStateStore.Load(UuidA)!.LockedCoreClockMHz);
+        Assert.Equal(2800u, AppliedStateStore.LoadOrAdoptLegacy(UuidA, UuidA)!.LockedCoreClockMHz);
     }
 
     [Fact]
@@ -141,19 +147,23 @@ public sealed class MultiGpuLegacyStateTests : IDisposable
         AppliedStateStore.Clear(UuidB);
 
         Assert.True(File.Exists(AppPaths.AppliedStateFile));
-        Assert.Equal(2800u, AppliedStateStore.Load(UuidA)!.LockedCoreClockMHz);
+        Assert.Equal(2800u, AppliedStateStore.LoadOrAdoptLegacy(UuidA, UuidA)!.LockedCoreClockMHz);
     }
 
     [Fact]
-    public void Card_as_own_first_write_supersedes_and_retires_its_legacy_record()
+    public void Card_as_own_write_supersedes_its_legacy_record_and_the_tuner_retires_it()
     {
         WriteLegacyRecordOfCardA();
 
-        AppliedStateStore.Record(new TuningProfile { Name = "fresh" }, allSucceeded: true, lockedClock: null, UuidA);
+        AppliedStateStore.Record(new TuningProfile { Name = "fresh" }, allSucceeded: true, lockWrittenByAfterglow: null, UuidA);
 
-        Assert.False(File.Exists(AppPaths.AppliedStateFile));
+        // Superseded at once: the crash scan reports card A's own record only.
         var a = Assert.Single(AppliedStateStore.LoadAll());
         Assert.Equal("fresh", a.ProfileName);
         Assert.Null(a.LockedCoreClockMHz);
+
+        // Retired when the card's tuner next starts; its own record wins.
+        Assert.Equal("fresh", AppliedStateStore.LoadOrAdoptLegacy(UuidA, UuidA)!.ProfileName);
+        Assert.False(File.Exists(AppPaths.AppliedStateFile));
     }
 }

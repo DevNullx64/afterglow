@@ -15,6 +15,13 @@ namespace Afterglow.App;
 public partial class App : Application
 {
     private AppServices? _services;
+
+    /// <summary>
+    /// --demo / --screenshot: a throwaway process that starts the services but
+    /// applies nothing to real hardware, and must not touch the applied-state
+    /// record the resident instance owns.
+    /// </summary>
+    private bool _ephemeralRun;
     private MainViewModel? _mainViewModel;
     private TrayService? _tray;
     private HotkeyService? _hotkeys;
@@ -77,6 +84,7 @@ public partial class App : Application
 
         bool demo = args.Contains("--demo");
         string? screenshotPath = Core.CommandLine.ValueOf(argv, "--screenshot");
+        _ephemeralRun = demo || screenshotPath is not null;
         string? page = Core.CommandLine.ValueOf(argv, "--page");
 
         // Single instance: two Afterglows would fight over fan control, hotkeys,
@@ -414,6 +422,22 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // A process that never started the services has nothing to mark. WPF's
+        // Shutdown() still runs OnExit, so every early exit — the single-instance
+        // short-circuit, --register-startup, the self-elevation relaunch — used
+        // to rewrite the applied-state record to "clean". A second process
+        // launched while the real one is tuning would therefore erase the
+        // resident instance's pending record, and the next launch would show no
+        // banner for a card that is still tuned. The ACL on %ProgramData%\Afterglow
+        // blocks the unelevated case, but the installer's elevated post-install
+        // launch is not unelevated. (--demo and --screenshot DO start the
+        // services; they are excluded from the mark below via _ephemeralRun.)
+        if (_services is null)
+        {
+            base.OnExit(e);
+            return;
+        }
+
         _exitRequested = true;
         _tooltipTimer?.Stop();
         _hotkeys?.Dispose();
@@ -430,15 +454,16 @@ public partial class App : Application
         // surviving with nothing to say so (F-27).
         // The V/F probe pins exact clocks the same way: cancel it first so its
         // unwind overlaps the stepper's, then require both to have landed.
-        _mainViewModel?.VfCurve.BeginShutdown();
+        _mainViewModel?.VfCurve.RequestProbeStop();
         bool settled = _mainViewModel?.Stability.StopForShutdown() ?? true;
         settled &= _mainViewModel?.VfCurve.StopForShutdown() ?? true;
 
-        // Only a process that ran the services may vouch for a clean exit: a
-        // second launch that just signalled the first, the installer's
-        // --register-startup hook or an argument error would otherwise mark
-        // the RUNNING instance's records clean and erase its crash evidence.
-        if (settled && _services is { DemoMode: false } && _singleInstanceMutex is not null)
+        // Only the resident instance may vouch for a clean exit: a --demo or
+        // --screenshot run starts services but applies nothing, and a second
+        // launch that just signalled the first holds no instance mutex — either
+        // would otherwise mark the RUNNING instance's records clean and erase
+        // its crash evidence.
+        if (settled && !_ephemeralRun && _singleInstanceMutex is not null)
         {
             AppliedStateStore.MarkCleanShutdown();
         }

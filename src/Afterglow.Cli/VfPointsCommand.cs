@@ -44,6 +44,10 @@ internal static class VfPointsCommand
 
     public static int Run(string[] args)
     {
+        // Parse is the stricter check (a valueless --set/--flatten, a repeated or
+        // conflicting action, a malformed --gpu — F-09, F-12) and gives the more
+        // specific message, so it runs first; the shared option table must still
+        // accept whatever Parse accepted, so it is checked too.
         if (Parse(args, out string? error) is not { } request)
         {
             Console.Error.WriteLine(error);
@@ -51,18 +55,26 @@ internal static class VfPointsCommand
             return 2;
         }
 
+        if (CliArgs.Validate(args, "vfpoints") is string argError)
+        {
+            Console.Error.WriteLine(argError);
+            return 2;
+        }
+
         using var manager = new GpuManager();
         if (manager.Gpus.Count == 0)
         {
-            Console.Error.WriteLine($"No NVIDIA GPU available (NVML: {manager.NvmlStatus}).");
+            Console.Error.WriteLine($"No supported GPU available (NVML: {manager.NvmlStatus}, IGCL: {manager.IgclStatus}).");
             return 1;
         }
 
+        // --gpu was parsed strictly by Parse (CliGpu.TryParseIndex) before the GPU
+        // stack was opened; null means none was given.
         uint gpuIndex = request.GpuIndex ?? manager.Gpus[0].Index;
         var gpu = manager.Gpus.FirstOrDefault(g => g.Index == gpuIndex);
         if (gpu is null)
         {
-            Console.Error.WriteLine($"GPU {gpuIndex} not found — {manager.Gpus.Count} NVIDIA GPU(s) detected.");
+            Console.Error.WriteLine($"GPU {gpuIndex} not found — {manager.Gpus.Count} GPU(s) detected.");
             return 2;
         }
 

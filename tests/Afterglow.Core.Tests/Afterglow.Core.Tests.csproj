@@ -23,6 +23,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Afterglow.Core\Afterglow.Core.csproj" />
+    <!-- The CLI's internals (argument parsing, verdict rules) are tested in-process; no
+         test calls a command's Run, which would open the GPU. -->
+    <ProjectReference Include="..\..\src\Afterglow.Cli\Afterglow.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,14 +33,6 @@
          file in (WindowEffectsPlanTests) instead of referencing the WinExe. -->
     <Compile Include="..\..\src\Afterglow.App\Shell\WindowEffectsPlan.cs" Link="Shell\WindowEffectsPlan.cs" />
     <Compile Include="..\..\src\Afterglow.App\Controls\AxisScale.cs" Link="Controls\AxisScale.cs" />
-  </ItemGroup>
-
-  <!-- The CLI's argument parsing, compiled in so it is tested without running
-       the exe (whose write commands would open the GPU). Parsing only — no
-       test calls Run. -->
-  <ItemGroup>
-    <Compile Include="..\..\src\Afterglow.Cli\CliGpu.cs" Link="Cli\CliGpu.cs" />
-    <Compile Include="..\..\src\Afterglow.Cli\VfPointsCommand.cs" Link="Cli\VfPointsCommand.cs" />
   </ItemGroup>
 
 </Project>
