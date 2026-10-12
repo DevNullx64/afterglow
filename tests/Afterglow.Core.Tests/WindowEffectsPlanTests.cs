@@ -64,7 +64,7 @@ public sealed class WindowEffectsPlanTests
     [Theory]
     [InlineData(true, true, false)]  // high contrast
     [InlineData(false, false, false)] // Settings > Personalization > Colors > Transparency effects off
-    [InlineData(false, true, true)]  // --no-mica (or --screenshot)
+    [InlineData(false, true, true)]  // no --mica (the default), or --screenshot
     public void Preferences_against_translucency_keep_the_window_opaque_but_keep_the_frame(
         bool highContrast, bool transparencyEffects, bool backdropOptOut)
     {

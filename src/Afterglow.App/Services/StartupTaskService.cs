@@ -79,7 +79,10 @@ public static class StartupTaskService
         // (TOCTOU, F-33). Here the directory name is random, its DACL grants only
         // SYSTEM + Administrators, and we hold the file open (FileShare.Read) for
         // the whole schtasks call, so there is no window in which anything the
-        // standard user controls can influence what schtasks consumes.
+        // standard user controls can influence what schtasks consumes. The hold is
+        // a READ handle opened after the write handle is closed: schtasks opens
+        // the file for reading with read-only sharing, which a handle with write
+        // access would refuse (sharing violation) — so every registration failed.
         string stagingRoot = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp");
         string stagingDir = Path.Combine(stagingRoot, "afterglow-task-" + Guid.NewGuid().ToString("N"));
@@ -92,12 +95,14 @@ public static class StartupTaskService
             }
 
             string xmlPath = Path.Combine(stagingDir, "task.xml");
-            using var stream = new FileStream(xmlPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
-            using var writer = new StreamWriter(stream, System.Text.Encoding.Unicode);
-            writer.Write(Core.Security.LogonTaskDefinition.BuildXml(exe, sid));
-            writer.Flush();
-            stream.Flush(flushToDisk: true);
+            using (var stream = new FileStream(xmlPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(stream, System.Text.Encoding.Unicode))
+            {
+                writer.Write(Core.Security.LogonTaskDefinition.BuildXml(exe, sid));
+            }
 
+            // Readers welcome, writers and deleters refused until schtasks is done.
+            using var hold = new FileStream(xmlPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             return RunSchtasks($"/Create /TN \"{TaskName}\" /XML \"{xmlPath}\" /F") == 0
                 ? new StartupTaskResult(null)
                 : new StartupTaskResult("Task Scheduler refused to create the startup task.");

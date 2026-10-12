@@ -8,8 +8,14 @@ namespace Afterglow.App;
 
 public partial class MainWindow : Window
 {
-    /// <summary>Command-line switch that keeps the opaque window on Windows 11 (no Mica).</summary>
-    public const string NoMicaSwitch = "--no-mica";
+    /// <summary>
+    /// Command-line switch that turns on the Mica backdrop (Windows 11 22H2+).
+    /// Off by default: measured on the RTX 5090 test machine, the translucent
+    /// window cost ~0.18 percentage points of a core and ~10 MB private memory
+    /// while visible (WPF renders the whole window with per-pixel alpha), and
+    /// behind the near-opaque palette tints it was barely visible.
+    /// </summary>
+    public const string MicaSwitch = "--mica";
 
     private nint _hwnd;
 
@@ -41,9 +47,10 @@ public partial class MainWindow : Window
 
         // --screenshot renders the visual tree with RenderTargetBitmap, which never sees the
         // DWM backdrop: translucent surfaces would come out as see-through PNG pixels.
-        bool optOut = Environment.GetCommandLineArgs().Any(a =>
-            a.Equals(NoMicaSwitch, StringComparison.OrdinalIgnoreCase) ||
-            a.Equals("--screenshot", StringComparison.OrdinalIgnoreCase));
+        string[] commandLine = Environment.GetCommandLineArgs();
+        bool optOut =
+            !commandLine.Any(a => a.Equals(MicaSwitch, StringComparison.OrdinalIgnoreCase)) ||
+            commandLine.Any(a => a.Equals("--screenshot", StringComparison.OrdinalIgnoreCase));
         EffectsPlan = WindowEffectsPlan.For(
             Environment.OSVersion.Version.Build,
             SystemParameters.HighContrast,

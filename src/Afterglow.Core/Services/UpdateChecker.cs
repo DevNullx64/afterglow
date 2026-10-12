@@ -254,6 +254,14 @@ public static class UpdateChecker
                 return null;
             }
 
+            // A tag that isn't a version we can order (four parts, a stray prefix)
+            // is "couldn't tell", not "up to date".
+            if (SemVer.TryParse(tag) is null)
+            {
+                Diagnostics.Log.Info($"Update check: the latest release tag '{tag}' is not a version Afterglow can compare.");
+                return null;
+            }
+
             return new UpdateCheckResult(tag, IsNewer(tag, running));
         }
         catch (Exception ex) when (

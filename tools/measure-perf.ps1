@@ -41,7 +41,9 @@ param(
     [string]$OutDir = (Join-Path $env:TEMP 'afterglow-perf'),
     [string]$Label = '',
     # Recompute the summary from a previous run's saved CSVs and JSON.
-    [switch]$SummarizeOnly
+    [switch]$SummarizeOnly,
+    # Extra app arguments for every run (e.g. --no-mica).
+    [string[]]$ExtraArgs = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -124,6 +126,7 @@ for ($run = 1; $run -le $Runs; $run++) {
 
     $argList = @('--no-elevate', '--data-dir', "`"$data`"")
     if ($Scenario -eq 'tray') { $argList += '--minimized' }
+    $argList += $ExtraArgs
 
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $p = Start-Process -FilePath $Exe -ArgumentList $argList -PassThru

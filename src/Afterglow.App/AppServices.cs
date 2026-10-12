@@ -239,7 +239,17 @@ public sealed class AppServices : IDisposable
             }
         };
 
-        AppPaths.EnsureCreated();
+        try
+        {
+            AppPaths.EnsureCreated();
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            // An unelevated instance can't create folders in a data root an
+            // elevated run has locked down; it monitors without them (writes that
+            // need them degrade on their own).
+            Core.Diagnostics.Log.Info($"Data folders unavailable to this unelevated instance: {ex.Message}");
+        }
 
         // One curve per GPU, each fed only its own card's snapshots and kept in
         // a file keyed by that card's UUID — a curve measured on one card must

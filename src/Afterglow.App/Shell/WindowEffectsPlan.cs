@@ -56,7 +56,7 @@ internal sealed record WindowEffectsPlan(
     /// <param name="osBuild">Windows build number (Environment.OSVersion.Version.Build).</param>
     /// <param name="highContrast">High-contrast mode is on: never draw a material behind the content.</param>
     /// <param name="transparencyEffects">Settings &gt; Personalization &gt; Colors &gt; Transparency effects.</param>
-    /// <param name="backdropOptOut">The user asked for the opaque look (<c>--no-mica</c>).</param>
+    /// <param name="backdropOptOut">The opaque look is wanted (the default; Mica is opt-in with <c>--mica</c>).</param>
     public static WindowEffectsPlan For(int osBuild, bool highContrast, bool transparencyEffects, bool backdropOptOut)
     {
         if (osBuild < Windows11Build)

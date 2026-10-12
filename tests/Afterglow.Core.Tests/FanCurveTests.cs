@@ -90,6 +90,11 @@ public class FanCurveTests
         Assert.NotNull(new FanCurveConfig { Points = [new(40, 30), new(40, 50)] }.Validate());
         Assert.NotNull(new FanCurveConfig { Points = [new(40, 50), new(60, 30)] }.Validate());
         Assert.NotNull(new FanCurveConfig { Points = [new(40, 30), new(60, 120)] }.Validate());
+
+        // Safety floors: fans can't be held stopped at any temperature.
+        Assert.NotNull(new FanCurveConfig { Points = [new(40, 0), new(90, 20)] }.Validate());
+        Assert.NotNull(new FanCurveConfig { Points = [new(40, 30), new(90, 100)], ZeroRpmBelowC = 95 }.Validate());
+        Assert.Null(new FanCurveConfig { Points = [new(40, 0), new(90, 30)], ZeroRpmBelowC = 60 }.Validate());
         Assert.Null(new FanCurveConfig().Validate());
     }
 }

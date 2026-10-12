@@ -65,14 +65,15 @@ public sealed class ProfileStore
                 // ProgramData hardening: when elevated, a profile whose owner is
                 // neither an administrator/SYSTEM nor the current user may have
                 // been planted by a standard user — skip it rather than trust it
-                // for a GPU-write (no-op unelevated / --data-dir).
-                if (!Security.DataRootProtection.MayLoad(file))
+                // for a GPU-write (no-op unelevated / --data-dir). Checked on the
+                // handle the content is read from.
+                if (Security.DataRootProtection.TryReadAllText(file) is not { } json)
                 {
                     errors.Add((file, "Skipped: file owner is not trusted while running elevated."));
                     continue;
                 }
 
-                var profile = JsonSerializer.Deserialize<TuningProfile>(File.ReadAllText(file), JsonOptions);
+                var profile = JsonSerializer.Deserialize<TuningProfile>(json, JsonOptions);
                 if (profile is null)
                 {
                     errors.Add((file, "Empty profile file."));
@@ -104,15 +105,12 @@ public sealed class ProfileStore
             return null;
         }
 
-        // Elevated: refuse a profile whose owner is untrusted (see LoadAll).
-        if (!Security.DataRootProtection.MayLoad(path))
-        {
-            return null;
-        }
-
         try
         {
-            return JsonSerializer.Deserialize<TuningProfile>(File.ReadAllText(path), JsonOptions);
+            // Elevated: refuse a profile whose owner is untrusted (see LoadAll).
+            return Security.DataRootProtection.TryReadAllText(path) is { } json
+                ? JsonSerializer.Deserialize<TuningProfile>(json, JsonOptions)
+                : null;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
@@ -134,17 +132,11 @@ public sealed class ProfileStore
         // UnauthorizedAccessException that every Save caller already handles.
         Directory.CreateDirectory(_directory);
 
-        string path = PathFor(profile.Name);
-        string temp = path + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(profile, JsonOptions));
-        if (File.Exists(path))
-        {
-            File.Replace(temp, path, destinationBackupFileName: null);
-        }
-        else
-        {
-            File.Move(temp, path);
-        }
+        // Temp + rename: the result carries the folder's permissions, and a
+        // refused (untrusted-owner) target is moved aside rather than replaced
+        // in a way that would inherit its grants.
+        Security.DataRootProtection.WriteAllTextAtomic(
+            PathFor(profile.Name), JsonSerializer.Serialize(profile, JsonOptions));
     }
 
     public bool Delete(string name)

@@ -55,11 +55,10 @@ Filename: "{app}\Afterglow.exe"; Description: "Launch Afterglow"; Flags: nowait 
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""Afterglow"" /F"; RunOnceId: "RemoveStartupTask"; Flags: runhidden
 
 [UninstallDelete]
-; Keep user data (saved profiles, logs, flight recordings), but remove the
-; machine-wide state that would otherwise silently re-apply tuning on a later
-; reinstall: the startup/auto-apply settings and the per-GPU crash-recovery
-; records (F-66). The scheduled task itself is removed by [UninstallRun] above.
-Type: files; Name: "{commonappdata}\Afterglow\settings.json"
+; The per-GPU crash-recovery records describe tuning on THIS install; after an
+; uninstall they are stale, and a reinstall must not greet the user with a crash
+; banner about them (F-66). Everything else (settings with fan curves and rules,
+; profiles, logs, flight recordings) is the user's — see CurUninstallStepChanged.
 Type: files; Name: "{commonappdata}\Afterglow\applied-state*.json"
 
 [Code]
@@ -101,4 +100,19 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
     RegisterStartupTask;
+end;
+
+// F-66: settings (including the startup profile that auto-applies at logon),
+// profiles, logs and crash recordings outlive the program unless the user asks
+// otherwise. Interactive uninstalls ask, defaulting to keep; silent ones keep.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if (CurUninstallStep = usPostUninstall) and not UninstallSilent then
+  begin
+    if MsgBox('Also remove your Afterglow settings, profiles, logs and crash recordings?'
+      + #13#10#13#10 + 'Choose No to keep them for a later reinstall. Kept settings include any'
+      + ' startup profile, which applies again at logon if you re-enable "Start with Windows".',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      DelTree(ExpandConstant('{commonappdata}\Afterglow'), True, True, True);
+  end;
 end;

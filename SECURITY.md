@@ -29,25 +29,35 @@ Afterglow's attack surface is deliberately small:
 `%ProgramData%` inherits a DACL that lets standard users create files, and the elevated
 Afterglow process reads profiles/settings from there. This is defended in depth:
 
-- **Clamping (always).** Every value loaded from disk is schema-validated and then clamped
-  to the driver-reported legal range before any write reaches the GPU, so a tampered
-  profile cannot push the hardware beyond what the driver itself allows any tool to set.
-- **Data-root lock-down (when elevated).** The first time Afterglow runs elevated against
-  the default `%ProgramData%\Afterglow` root, it resets that directory's permissions to
-  SYSTEM + Administrators full control with the owner set to Administrators, leaving
-  standard users read-only. Unelevated monitoring still reads everything; standard users
-  can no longer plant or alter files there.
-- **Owner check at load (when elevated).** As a second layer — for anything planted before
-  the lock-down, e.g. before first run — the elevated app refuses to load a settings or
-  profile file whose owner is neither an administrator/SYSTEM nor the current user, falling
-  back to safe defaults and logging the refusal.
+- **Validation and clamping (always).** Every value loaded from disk is schema-validated and
+  clamped to the driver-reported legal range before any write reaches the GPU. Fan curves
+  additionally have safety floors — the hottest point must ask for at least 30 % and the
+  zero-RPM threshold can't exceed 60 °C — because 0 % at any temperature is "legal" to the
+  driver.
+- **Data-folder lock-down (each elevated start).** Against the default
+  `%ProgramData%\Afterglow` root only, the elevated app (GUI or CLI):
+  - refuses a root that is itself a link (it removes the link — never its target — and
+    recreates a real folder), then sets SYSTEM + Administrators full control, owner
+    Administrators, standard users read-only;
+  - walks the tree without following links: removes any link inside it (a junction there
+    would redirect the elevated app's log and flight-recorder writes), re-owns every folder
+    and trusted file to Administrators with inherit-only permissions (a creator otherwise
+    keeps an implicit right to reopen its folder or file, and explicit grants survive), and
+    moves files owned by another standard user aside as `*.untrusted` — kept for
+    inspection, never loaded, never re-owned.
+- **Owner check at load (when elevated).** A settings or profile file is read through one
+  handle that also supplies its owner and refuses writers while open; if the owner is
+  neither an administrator/SYSTEM nor the current user, it is refused (defaults are used and
+  the refusal is logged). Saves go through a temporary file and a rename, so the result
+  carries the folder's permissions, and a refused file is moved aside rather than replaced.
 
-Residual risk: this closes the cross-user case (a *standard* user influencing the elevated
-app). It does **not** defend against the same administrator account tampering with its own
-machine — that is the UAC boundary, which Microsoft does not service as a security
-boundary. The lock-down is applied only to the default root; a `--data-dir` test or
-side-by-side root is deliberately left untouched, and an unelevated instance never changes
-a permission or refuses a read.
+What this does not cover: code already running as the same administrator user, unelevated —
+that is the UAC boundary, which Microsoft does not service as a security boundary. A
+`--data-dir` root is deliberately left untouched, and an unelevated instance never changes a
+permission or refuses a read (writes it can no longer make degrade with a message). Before
+the first elevated start — or if something outside Afterglow loosens the folder's
+permissions again — only the owner check stands, until the next elevated start re-applies
+the lock-down.
 
 ## Reporting a vulnerability
 

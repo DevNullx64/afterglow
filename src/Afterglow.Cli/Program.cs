@@ -17,6 +17,11 @@ internal static class Program
             return Fail(ex.Message);
         }
 
+        // Every command, not just the MCP server: an elevated `certify` or
+        // `set` loads profiles too, and must refuse planted ones the same way.
+        // No-op unelevated or with --data-dir.
+        Afterglow.Core.Security.DataRootProtection.EnsureHardened();
+
         string command = args.Length > 0 ? args[0].ToLowerInvariant() : "help";
         return command switch
         {

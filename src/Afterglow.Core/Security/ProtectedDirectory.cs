@@ -65,6 +65,38 @@ public static class ProtectedDirectory
     /// exists with a permissive default ACL even briefly. Returns false if the
     /// name already exists (a pre-created name is refused rather than reused).
     /// </summary>
+    /// <summary>
+    /// Makes an item below a protected root carry exactly the root's DACL:
+    /// owner Administrators (an owner keeps an implicit right to rewrite the
+    /// DACL, so a folder or file a standard user created stays theirs to reopen
+    /// otherwise), inheritance on, every explicit grant removed. Only for items
+    /// already judged trustworthy — re-owning a file another user planted would
+    /// launder it into one the owner check accepts.
+    /// </summary>
+    public static void Inherit(FileSystemInfo item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        FileSystemSecurity security = item is DirectoryInfo directory
+            ? directory.GetAccessControl()
+            : ((FileInfo)item).GetAccessControl();
+        security.SetOwner(Administrators);
+        security.SetAccessRuleProtection(isProtected: false, preserveInheritance: false);
+        foreach (FileSystemAccessRule rule in security.GetAccessRules(
+                     includeExplicit: true, includeInherited: false, typeof(SecurityIdentifier)))
+        {
+            security.RemoveAccessRuleSpecific(rule);
+        }
+
+        if (item is DirectoryInfo dir)
+        {
+            dir.SetAccessControl((DirectorySecurity)security);
+        }
+        else
+        {
+            ((FileInfo)item).SetAccessControl((FileSecurity)security);
+        }
+    }
+
     public static bool TryCreateExclusive(string path, bool allowUsersRead)
     {
         if (Directory.Exists(path) || File.Exists(path))

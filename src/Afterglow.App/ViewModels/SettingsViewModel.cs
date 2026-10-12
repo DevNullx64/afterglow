@@ -406,7 +406,7 @@ public partial class SettingsViewModel : ObservableObject, ILivePage
         // tester is never told "up to date (v1.2.0)" while on v1.2.0-beta.3 (F-46/F-65).
         string running = Core.Services.UpdateChecker.DisplayVersion;
         UpdateStatusText = result is null
-            ? "Check failed — no connection, or GitHub rate-limited the request. Nothing was retried."
+            ? "Check failed — no connection, GitHub rate-limited the request, or its answer couldn't be read. Nothing was retried."
             : result.UpdateAvailable
                 ? $"{result.LatestTag} is available (you're on v{running}) — use the Releases page button."
                 : $"Up to date (v{running}).";
@@ -456,7 +456,23 @@ public partial class SettingsViewModel : ObservableObject, ILivePage
         if (value)
         {
             var logger = new CsvLogger();
-            logger.Start();
+            try
+            {
+                logger.Start();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // e.g. an unelevated instance after an elevated run locked the data
+                // folder down. Say so and put the toggle back — WPF swallows an
+                // exception from a binding setter, which used to leave the switch
+                // on with nothing being logged.
+                logger.Dispose();
+                CsvStatusText = $"Could not start the CSV log: {ex.Message}" +
+                                (_services.IsElevated ? string.Empty : " (Afterglow is running without administrator rights.)");
+                _ = System.Windows.Application.Current?.Dispatcher.BeginInvoke(() => CsvLoggingEnabled = false);
+                return;
+            }
+
             _services.ActiveCsvLogger = logger;
             _services.SetExtendedMetrics(true);
             _services.Telemetry.SnapshotTaken += logger.Log;
@@ -484,7 +500,7 @@ public partial class SettingsViewModel : ObservableObject, ILivePage
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
                 Core.CommandLine.Join([AppPaths.Root]));
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
         {
             CsvStatusText = $"Could not open folder: {ex.Message}";
         }

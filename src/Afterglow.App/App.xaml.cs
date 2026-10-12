@@ -113,16 +113,29 @@ public partial class App : Application
         // At most one Afterglow may hold administrator rights at a time: two
         // would fight over fans, clock locks, the TDR watchdog's resets and game
         // rules. The per-data-root single-instance mutex above lets a --data-dir
-        // instance run beside the resident one, so this second, machine-wide
-        // guard is what keeps that pair from both driving the hardware.
+        // instance run beside the resident one, so this second guard is what
+        // keeps that pair from both driving the hardware. Global\, not Local\:
+        // the GPU is one per machine, and fast user switching or a second admin
+        // session would otherwise give each session its own "only" owner.
         // Unelevated instances can't write and don't take part.
         if (!demo && screenshotPath is null && AppServices.CheckElevated())
         {
-            _hardwareOwnerMutex = new System.Threading.Mutex(
-                initiallyOwned: true, @"Local\AfterglowHardwareOwner", out bool ownsHardware);
+            bool ownsHardware;
+            try
+            {
+                _hardwareOwnerMutex = new System.Threading.Mutex(
+                    initiallyOwned: true, @"Global\AfterglowHardwareOwner", out ownsHardware);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Created by another session's instance with a DACL we can't open:
+                // it is owned elsewhere.
+                ownsHardware = false;
+            }
+
             if (!ownsHardware)
             {
-                _hardwareOwnerMutex.Dispose();
+                _hardwareOwnerMutex?.Dispose();
                 _hardwareOwnerMutex = null;
                 MessageBox.Show(
                     "Another Afterglow with administrator rights is already controlling the GPU" +
@@ -411,7 +424,7 @@ public partial class App : Application
         // second launch that just signalled the first, the installer's
         // --register-startup hook or an argument error would otherwise mark
         // the RUNNING instance's records clean and erase its crash evidence.
-        if (settled && _services is { DemoMode: false })
+        if (settled && _services is { DemoMode: false } && _singleInstanceMutex is not null)
         {
             AppliedStateStore.MarkCleanShutdown();
         }
