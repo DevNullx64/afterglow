@@ -84,7 +84,8 @@
                 </StackPanel>
             </Border>
 
-            <!-- Per-point curve editor: only on GPUs whose driver exposes the table (20/30/40 series) -->
+            <!-- Per-point curve editor: shown on any GPU whose driver answered the live table probe
+                 (SupportsVfPoints) - never gated by generation; verified on RTX 50 (F-51) -->
             <Border Style="{StaticResource Card}" Margin="0,10,0,0"
                     Visibility="{Binding SupportsVfPoints, Converter={x:Static views:Converters.BoolToVisibility}}">
                 <StackPanel>

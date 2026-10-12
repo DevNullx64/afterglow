@@ -70,7 +70,7 @@ Afterglow is a from-scratch, MIT-licensed answer:
 <p align="center">
   <img src="docs/media/vfcurve.png" width="820" alt="Measured V/F curve of an RTX 5090" />
   <br/>
-  <sub>An RTX 5090's real measured voltage/frequency curve — probed on hardware where NVIDIA removed the official curve APIs.</sub>
+  <sub>An RTX 5090's real measured voltage/frequency curve — probed under load, what the GPU actually runs rather than what the driver's stored table intends.</sub>
 </p>
 - Knob-by-knob apply results: every slider reports applied / clamped / failed individually
 
