@@ -426,8 +426,12 @@ public sealed unsafe class NvapiGpu
 
     /// <summary>
     /// Reads the driver's stored core V/F table with the per-point offsets
-    /// currently applied. Works on Pascal→Ada; Blackwell rejects the
-    /// interfaces, in which case the status is passed through unchanged.
+    /// currently applied. Read and write are verified on RTX 5090 (Blackwell,
+    /// driver 616.56) and expected on Pascal→Ada through the same interfaces;
+    /// support is probed live, never assumed by generation, and any driver
+    /// refusal is passed through unchanged (F-04/F-47: an older version of this
+    /// comment claimed Blackwell rejects the interfaces — that was a broken
+    /// struct layout of ours, not the driver).
     /// </summary>
     public NvapiStatus TryGetVfpPoints(out IReadOnlyList<VfpTablePoint> points)
     {
@@ -519,7 +523,14 @@ public sealed unsafe class NvapiGpu
         return _fn.SetClockBoostTable(_handle, &table);
     }
 
-    /// <summary>Clears every per-point offset (a zeroed table write, mask copied in).</summary>
+    /// <summary>
+    /// Zeroes the per-point offset of every live core-domain slot. A
+    /// read-modify-write, like <see cref="TrySetVfpPointOffsets"/>: slots of
+    /// other clock domains and every opaque per-entry byte go back exactly as
+    /// the driver returned them. It used to write a fabricated all-zero table,
+    /// relabelling non-core slots as core and blanking their deltas — state the
+    /// set path deliberately leaves alone (F-03/F-23).
+    /// </summary>
     public NvapiStatus TryClearVfpPointOffsets()
     {
         if (_fn.SetClockBoostTable == null)
@@ -534,10 +545,27 @@ public sealed unsafe class NvapiGpu
             return rc;
         }
 
-        var table = default(NvClockTable);
-        table.Version = NvapiNative.MakeVersion<NvClockTable>(1);
-        CopyMask(masks.Mask, table.Mask);
+        NvClockTable table;
+        rc = ReadTable(&masks, &table);
+        if (rc != NvapiStatus.Ok)
+        {
+            return rc;
+        }
+
+        ClearCoreDeltas(&masks, &table);
         return _fn.SetClockBoostTable(_handle, &table);
+    }
+
+    /// <summary>Zeroes the delta of live core-domain slots only (separated so the rule is unit-testable).</summary>
+    internal static void ClearCoreDeltas(NvClockMasks* masks, NvClockTable* table)
+    {
+        for (int i = 0; i < NvClockBoost.Slots; i++)
+        {
+            if (masks->Clocks[i].Enabled == 1 && table->Clocks[i].ClockType == 0)
+            {
+                table->Clocks[i].FrequencyDeltaKHz = 0;
+            }
+        }
     }
 
     /// <summary>
