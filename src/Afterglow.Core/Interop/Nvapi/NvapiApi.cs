@@ -6,45 +6,43 @@ namespace Afterglow.Core.Interop.Nvapi;
 /// Managed entry point for NVAPI. All interfaces are optional: a null/missing
 /// interface degrades the corresponding feature instead of failing the app.
 /// </summary>
-public sealed class NvapiApi
+public sealed unsafe class NvapiApi
 {
-    private readonly NvapiNative.EnumPhysicalGpusDelegate? _enumGpus;
+    /// <summary>NVAPI_MAX_PHYSICAL_GPUS.</summary>
+    private const int MaxPhysicalGpus = 64;
+
+    private readonly NvapiGpuFunctions _fn;
 
     private NvapiApi()
     {
-        _enumGpus = NvapiNative.GetDelegate<NvapiNative.EnumPhysicalGpusDelegate>(NvapiIds.EnumPhysicalGpus);
+        _fn = NvapiGpuFunctions.Resolved;
     }
 
     public static NvapiApi? TryCreate(out NvapiStatus status)
     {
-        var initialize = NvapiNative.GetDelegate<NvapiNative.InitializeDelegate>(NvapiIds.Initialize);
-        if (initialize is null)
-        {
-            status = NvapiStatus.LibraryNotFound;
-            return null;
-        }
-
-        status = initialize();
+        status = NvapiNative.EnsureInitialized();
         return status == NvapiStatus.Ok ? new NvapiApi() : null;
     }
 
     public IReadOnlyList<NvapiGpu> GetGpus()
     {
-        if (_enumGpus is null)
+        if (_fn.EnumPhysicalGpus == null)
         {
             return [];
         }
 
-        var handles = new nint[64];
-        if (_enumGpus(handles, out int count) != NvapiStatus.Ok)
+        nint* handles = stackalloc nint[MaxPhysicalGpus];
+        int count = 0;
+        if (_fn.EnumPhysicalGpus(handles, &count) != NvapiStatus.Ok)
         {
             return [];
         }
 
+        count = Math.Clamp(count, 0, MaxPhysicalGpus);
         var gpus = new List<NvapiGpu>(count);
         for (int i = 0; i < count; i++)
         {
-            gpus.Add(new NvapiGpu(handles[i]));
+            gpus.Add(new NvapiGpu(handles[i], _fn));
         }
 
         return gpus;
@@ -54,27 +52,14 @@ public sealed class NvapiApi
 /// <summary>
 /// One physical GPU seen through NVAPI. Wraps the verified interface set with
 /// capability-tolerant methods; see docs/research/driver-apis.md for provenance.
+/// Every driver struct lives on the stack for the duration of one call, so the
+/// sensor reads (thermals, voltage, fan status) allocate nothing beyond their
+/// managed results.
 /// </summary>
-public sealed class NvapiGpu
+public sealed unsafe class NvapiGpu
 {
     private readonly nint _handle;
-
-    private readonly NvapiNative.GetFullNameDelegate? _getFullName;
-    private readonly NvapiNative.GetBusIdDelegate? _getBusId;
-    private readonly NvapiNative.GetTachReadingDelegate? _getTach;
-    private readonly NvapiNative.GetThermalSensorsDelegate? _getThermalSensors;
-    private readonly NvapiNative.GetDynamicPstatesDelegate? _getDynamicPstates;
-    private readonly NvapiNative.FanCoolersGetStatusDelegate? _fanStatus;
-    private readonly NvapiNative.FanCoolersControlDelegate? _fanGetControl;
-    private readonly NvapiNative.FanCoolersControlDelegate? _fanSetControl;
-    private readonly NvapiNative.RestoreCoolerSettingsDelegate? _restoreCoolers;
-    private readonly NvapiNative.VoltRailsGetStatusDelegate? _voltRails;
-    private readonly NvapiNative.ThermalPoliciesGetInfoDelegate? _thermalPoliciesInfo;
-    private readonly NvapiNative.ThermalPoliciesStatusDelegate? _thermalPoliciesGetStatus;
-    private readonly NvapiNative.ThermalPoliciesStatusDelegate? _thermalPoliciesSetStatus;
-    private readonly NvapiNative.VoltageBoostDelegate? _getVoltageBoost;
-    private readonly NvapiNative.VoltageBoostDelegate? _setVoltageBoost;
-    private readonly NvapiNative.GetVfpCurveDelegate? _getVfpCurve;
+    private readonly NvapiGpuFunctions _fn;
 
     private uint _thermalSensorsMask;
     private bool _thermalMaskProbed;
@@ -87,43 +72,21 @@ public sealed class NvapiGpu
     /// </summary>
     public uint Architecture { get; set; }
 
-    internal NvapiGpu(nint handle)
+    internal NvapiGpu(nint handle, NvapiGpuFunctions functions)
     {
         _handle = handle;
-        _getFullName = NvapiNative.GetDelegate<NvapiNative.GetFullNameDelegate>(NvapiIds.GpuGetFullName);
-        _getBusId = NvapiNative.GetDelegate<NvapiNative.GetBusIdDelegate>(NvapiIds.GpuGetBusId);
-        _getTach = NvapiNative.GetDelegate<NvapiNative.GetTachReadingDelegate>(NvapiIds.GpuGetTachReading);
-        _getThermalSensors = NvapiNative.GetDelegate<NvapiNative.GetThermalSensorsDelegate>(NvapiIds.GpuGetThermalSensors);
-        _getDynamicPstates = NvapiNative.GetDelegate<NvapiNative.GetDynamicPstatesDelegate>(NvapiIds.GpuGetDynamicPstatesInfoEx);
-        _fanStatus = NvapiNative.GetDelegate<NvapiNative.FanCoolersGetStatusDelegate>(NvapiIds.GpuClientFanCoolersGetStatus);
-        _fanGetControl = NvapiNative.GetDelegate<NvapiNative.FanCoolersControlDelegate>(NvapiIds.GpuClientFanCoolersGetControl);
-        _fanSetControl = NvapiNative.GetDelegate<NvapiNative.FanCoolersControlDelegate>(NvapiIds.GpuClientFanCoolersSetControl);
-        _restoreCoolers = NvapiNative.GetDelegate<NvapiNative.RestoreCoolerSettingsDelegate>(NvapiIds.GpuRestoreCoolerSettings);
-        _voltRails = NvapiNative.GetDelegate<NvapiNative.VoltRailsGetStatusDelegate>(NvapiIds.GpuClientVoltRailsGetStatus);
-        _thermalPoliciesInfo = NvapiNative.GetDelegate<NvapiNative.ThermalPoliciesGetInfoDelegate>(NvapiIds.GpuClientThermalPoliciesGetInfo);
-        _thermalPoliciesGetStatus = NvapiNative.GetDelegate<NvapiNative.ThermalPoliciesStatusDelegate>(NvapiIds.GpuClientThermalPoliciesGetStatus);
-        _thermalPoliciesSetStatus = NvapiNative.GetDelegate<NvapiNative.ThermalPoliciesStatusDelegate>(NvapiIds.GpuClientThermalPoliciesSetStatus);
-        _getVoltageBoost = NvapiNative.GetDelegate<NvapiNative.VoltageBoostDelegate>(NvapiIds.GpuGetCoreVoltageBoostPercent);
-        _setVoltageBoost = NvapiNative.GetDelegate<NvapiNative.VoltageBoostDelegate>(NvapiIds.GpuSetCoreVoltageBoostPercent);
-        _getVfpCurve = NvapiNative.GetDelegate<NvapiNative.GetVfpCurveDelegate>(NvapiIds.GpuGetVfpCurve);
-        _getClockBoostMask = NvapiNative.GetDelegate<NvapiNative.ClockMasksDelegate>(NvapiIds.GpuGetClockBoostMask);
-        _getClockBoostTable = NvapiNative.GetDelegate<NvapiNative.ClockTableDelegate>(NvapiIds.GpuGetClockBoostTable);
-        _setClockBoostTable = NvapiNative.GetDelegate<NvapiNative.ClockTableDelegate>(NvapiIds.GpuSetClockBoostTable);
+        _fn = functions;
     }
 
-    private readonly NvapiNative.ClockMasksDelegate? _getClockBoostMask;
-    private readonly NvapiNative.ClockTableDelegate? _getClockBoostTable;
-    private readonly NvapiNative.ClockTableDelegate? _setClockBoostTable;
-
-    public unsafe string? GetName()
+    public string? GetName()
     {
-        if (_getFullName is null)
+        if (_fn.GetFullName == null)
         {
             return null;
         }
 
         byte* buffer = stackalloc byte[64];
-        if (_getFullName(_handle, buffer) != NvapiStatus.Ok)
+        if (_fn.GetFullName(_handle, buffer) != NvapiStatus.Ok)
         {
             return null;
         }
@@ -140,13 +103,29 @@ public sealed class NvapiGpu
     public NvapiStatus TryGetBusId(out uint busId)
     {
         busId = 0;
-        return _getBusId?.Invoke(_handle, out busId) ?? NvapiStatus.FunctionNotFound;
+        if (_fn.GetBusId == null)
+        {
+            return NvapiStatus.FunctionNotFound;
+        }
+
+        uint value = 0;
+        var rc = _fn.GetBusId(_handle, &value);
+        busId = value;
+        return rc;
     }
 
     public NvapiStatus TryGetTachRpm(out int rpm)
     {
         rpm = 0;
-        return _getTach?.Invoke(_handle, out rpm) ?? NvapiStatus.FunctionNotFound;
+        if (_fn.GetTachReading == null)
+        {
+            return NvapiStatus.FunctionNotFound;
+        }
+
+        int value = 0;
+        var rc = _fn.GetTachReading(_handle, &value);
+        rpm = value;
+        return rc;
     }
 
     // --- Private thermal sensors (hot spot / memory junction) -----------------
@@ -161,7 +140,7 @@ public sealed class NvapiGpu
         _thermalMaskProbed = true;
         _thermalSensorsMask = 0;
 
-        if (_getThermalSensors is null)
+        if (_fn.GetThermalSensors == null)
         {
             return 0;
         }
@@ -171,7 +150,7 @@ public sealed class NvapiGpu
         {
             uint mask = 1u << bit;
             var sensors = NewThermalSensors(mask);
-            if (_getThermalSensors(_handle, ref sensors) != NvapiStatus.Ok)
+            if (_fn.GetThermalSensors(_handle, &sensors) != NvapiStatus.Ok)
             {
                 _thermalSensorsMask = mask - 1;
                 allSupported = false;
@@ -187,13 +166,13 @@ public sealed class NvapiGpu
         return _thermalSensorsMask;
     }
 
-    private static NvThermalSensors NewThermalSensors(uint mask) => new()
+    private static NvThermalSensors NewThermalSensors(uint mask)
     {
-        Version = NvapiNative.MakeVersion<NvThermalSensors>(2),
-        Mask = mask,
-        Reserved = new int[8],
-        Temperatures = new int[32],
-    };
+        var sensors = default(NvThermalSensors);
+        sensors.Version = NvapiNative.MakeVersion<NvThermalSensors>(2);
+        sensors.Mask = mask;
+        return sensors;
+    }
 
     /// <summary>
     /// Reads hot spot / memory-junction temperatures where the driver exposes them.
@@ -212,13 +191,13 @@ public sealed class NvapiGpu
         }
 
         uint mask = ProbeThermalSensorMask();
-        if (mask == 0 || _getThermalSensors is null)
+        if (mask == 0 || _fn.GetThermalSensors == null)
         {
             return (null, null);
         }
 
         var sensors = NewThermalSensors(mask);
-        if (_getThermalSensors(_handle, ref sensors) != NvapiStatus.Ok)
+        if (_fn.GetThermalSensors(_handle, &sensors) != NvapiStatus.Ok)
         {
             return (null, null);
         }
@@ -230,18 +209,18 @@ public sealed class NvapiGpu
             _ => (1, 9),
         };
 
-        double? ReadChannel(int? channel)
-        {
-            if (channel is not int c || c >= sensors.Temperatures.Length)
-            {
-                return null;
-            }
+        return (ReadChannel(&sensors, hotSpotChannel), ReadChannel(&sensors, memChannel));
+    }
 
-            double value = sensors.Temperatures[c] / 256.0;
-            return value is > 0 and < 150 ? Math.Round(value, 1) : null;
+    private static double? ReadChannel(NvThermalSensors* sensors, int? channel)
+    {
+        if (channel is not int c || c >= NvThermalSensors.Channels)
+        {
+            return null;
         }
 
-        return (ReadChannel(hotSpotChannel), ReadChannel(memChannel));
+        double value = sensors->Temperatures[c] / 256.0;
+        return value is > 0 and < 150 ? Math.Round(value, 1) : null;
     }
 
     // --- Fans ------------------------------------------------------------------
@@ -251,26 +230,23 @@ public sealed class NvapiGpu
     public NvapiStatus TryGetFanStatus(out IReadOnlyList<FanInfo> fans)
     {
         fans = [];
-        if (_fanStatus is null)
+        if (_fn.FanCoolersGetStatus == null)
         {
             return NvapiStatus.FunctionNotFound;
         }
 
-        var status = new NvFanCoolersStatus
-        {
-            Version = NvapiNative.MakeVersion<NvFanCoolersStatus>(1),
-            Items = new NvFanCoolersStatusItem[32],
-        };
-        var rc = _fanStatus(_handle, ref status);
+        var status = default(NvFanCoolersStatus);
+        status.Version = NvapiNative.MakeVersion<NvFanCoolersStatus>(1);
+        var rc = _fn.FanCoolersGetStatus(_handle, &status);
         if (rc != NvapiStatus.Ok)
         {
             return rc;
         }
 
-        var result = new FanInfo[Math.Min(status.Count, 32)];
+        var result = new FanInfo[Math.Min(status.Count, NvFanCoolersStatus.MaxCoolers)];
         for (int i = 0; i < result.Length; i++)
         {
-            var item = status.Items[i];
+            ref readonly var item = ref status.Items[i];
             result[i] = new FanInfo(item.CoolerId, item.CurrentRpm, item.CurrentMinLevel, item.CurrentMaxLevel, item.CurrentLevel);
         }
 
@@ -316,9 +292,9 @@ public sealed class NvapiGpu
             return item;
         });
 
-        if (rc != NvapiStatus.Ok && _restoreCoolers is not null)
+        if (rc != NvapiStatus.Ok && _fn.RestoreCoolerSettings != null)
         {
-            rc = _restoreCoolers(_handle, 0, 0);
+            rc = _fn.RestoreCoolerSettings(_handle, null, 0);
         }
 
         return rc;
@@ -326,29 +302,25 @@ public sealed class NvapiGpu
 
     private NvapiStatus MutateFanControl(Func<NvFanCoolerControlItem, NvFanCoolerControlItem> mutate)
     {
-        if (_fanGetControl is null || _fanSetControl is null)
+        if (_fn.FanCoolersGetControl == null || _fn.FanCoolersSetControl == null)
         {
             return NvapiStatus.FunctionNotFound;
         }
 
-        var control = new NvFanCoolerControl
-        {
-            Version = NvapiNative.MakeVersion<NvFanCoolerControl>(1),
-            Reserved2 = new uint[8],
-            Items = new NvFanCoolerControlItem[32],
-        };
-        var rc = _fanGetControl(_handle, ref control);
+        var control = default(NvFanCoolerControl);
+        control.Version = NvapiNative.MakeVersion<NvFanCoolerControl>(1);
+        var rc = _fn.FanCoolersGetControl(_handle, &control);
         if (rc != NvapiStatus.Ok)
         {
             return rc;
         }
 
-        for (int i = 0; i < Math.Min(control.Count, 32); i++)
+        for (int i = 0; i < Math.Min(control.Count, NvFanCoolerControl.MaxCoolers); i++)
         {
             control.Items[i] = mutate(control.Items[i]);
         }
 
-        return _fanSetControl(_handle, ref control);
+        return _fn.FanCoolersSetControl(_handle, &control);
     }
 
     // --- Voltage ----------------------------------------------------------------
@@ -356,13 +328,14 @@ public sealed class NvapiGpu
     public NvapiStatus TryGetCoreVoltageMv(out double millivolts)
     {
         millivolts = 0;
-        if (_voltRails is null)
+        if (_fn.VoltRailsGetStatus == null)
         {
             return NvapiStatus.FunctionNotFound;
         }
 
-        var status = new NvVoltRailsStatus { Version = NvapiNative.MakeVersion<NvVoltRailsStatus>(1) };
-        var rc = _voltRails(_handle, ref status);
+        var status = default(NvVoltRailsStatus);
+        status.Version = NvapiNative.MakeVersion<NvVoltRailsStatus>(1);
+        var rc = _fn.VoltRailsGetStatus(_handle, &status);
         if (rc == NvapiStatus.Ok)
         {
             millivolts = status.CoreMicrovolts / 1000.0;
@@ -374,35 +347,29 @@ public sealed class NvapiGpu
     public NvapiStatus TryGetVoltageBoostPercent(out uint percent)
     {
         percent = 0;
-        if (_getVoltageBoost is null)
+        if (_fn.GetVoltageBoost == null)
         {
             return NvapiStatus.FunctionNotFound;
         }
 
-        var boost = new NvVoltageBoostPercent
-        {
-            Version = NvapiNative.MakeVersion<NvVoltageBoostPercent>(1),
-            Reserved = new uint[8],
-        };
-        var rc = _getVoltageBoost(_handle, ref boost);
+        var boost = default(NvVoltageBoostPercent);
+        boost.Version = NvapiNative.MakeVersion<NvVoltageBoostPercent>(1);
+        var rc = _fn.GetVoltageBoost(_handle, &boost);
         percent = boost.Percent;
         return rc;
     }
 
     public NvapiStatus TrySetVoltageBoostPercent(uint percent)
     {
-        if (_setVoltageBoost is null)
+        if (_fn.SetVoltageBoost == null)
         {
             return NvapiStatus.FunctionNotFound;
         }
 
-        var boost = new NvVoltageBoostPercent
-        {
-            Version = NvapiNative.MakeVersion<NvVoltageBoostPercent>(1),
-            Percent = Math.Min(percent, 100),
-            Reserved = new uint[8],
-        };
-        return _setVoltageBoost(_handle, ref boost);
+        var boost = default(NvVoltageBoostPercent);
+        boost.Version = NvapiNative.MakeVersion<NvVoltageBoostPercent>(1);
+        boost.Percent = Math.Min(percent, 100);
+        return _fn.SetVoltageBoost(_handle, &boost);
     }
 
     // --- Per-point voltage/frequency curve (clock-boost table) -------------------
@@ -428,41 +395,34 @@ public sealed class NvapiGpu
     /// <summary>Static bound for a single point's offset; the driver additionally validates.</summary>
     public const int VfpOffsetLimitMHz = 1500;
 
-    private NvapiStatus ReadMasks(out NvClockMasks masks)
+    // The three tables are 6–9 KB each; callers keep them in stack locals and
+    // pass their addresses, so a full table read allocates nothing.
+
+    private NvapiStatus ReadMasks(NvClockMasks* masks)
     {
-        masks = new NvClockMasks
-        {
-            Version = NvapiNative.MakeVersion<NvClockMasks>(1),
-            Mask = new byte[32],
-            Unknown1 = new byte[32],
-            Clocks = new NvClockMaskEntry[255],
-        };
-        return _getClockBoostMask is null ? NvapiStatus.NoImplementation : _getClockBoostMask(_handle, ref masks);
+        *masks = default;
+        masks->Version = NvapiNative.MakeVersion<NvClockMasks>(1);
+        return _fn.GetClockBoostMask == null ? NvapiStatus.NoImplementation : _fn.GetClockBoostMask(_handle, masks);
     }
 
-    private NvapiStatus ReadCurve(byte[] mask, out NvVfpCurve curve)
+    private NvapiStatus ReadCurve(NvClockMasks* mask, NvVfpCurve* curve)
     {
-        curve = new NvVfpCurve
-        {
-            Version = NvapiNative.MakeVersion<NvVfpCurve>(1),
-            Mask = (byte[])mask.Clone(),
-            Unknown1 = new byte[32],
-            Clocks = new NvVfpCurveEntry[255],
-        };
-        return _getVfpCurve is null ? NvapiStatus.NoImplementation : _getVfpCurve(_handle, ref curve);
+        *curve = default;
+        curve->Version = NvapiNative.MakeVersion<NvVfpCurve>(1);
+        CopyMask(mask->Mask, curve->Mask);
+        return _fn.GetVfpCurve == null ? NvapiStatus.NoImplementation : _fn.GetVfpCurve(_handle, curve);
     }
 
-    private NvapiStatus ReadTable(byte[] mask, out NvClockTable table)
+    private NvapiStatus ReadTable(NvClockMasks* mask, NvClockTable* table)
     {
-        table = new NvClockTable
-        {
-            Version = NvapiNative.MakeVersion<NvClockTable>(1),
-            Mask = (byte[])mask.Clone(),
-            Unknown1 = new byte[32],
-            Clocks = new NvClockTableEntry[255],
-        };
-        return _getClockBoostTable is null ? NvapiStatus.NoImplementation : _getClockBoostTable(_handle, ref table);
+        *table = default;
+        table->Version = NvapiNative.MakeVersion<NvClockTable>(1);
+        CopyMask(mask->Mask, table->Mask);
+        return _fn.GetClockBoostTable == null ? NvapiStatus.NoImplementation : _fn.GetClockBoostTable(_handle, table);
     }
+
+    private static void CopyMask(byte* source, byte* destination) =>
+        new ReadOnlySpan<byte>(source, NvClockBoost.MaskBytes).CopyTo(new Span<byte>(destination, NvClockBoost.MaskBytes));
 
     /// <summary>
     /// Reads the driver's stored core V/F table with the per-point offsets
@@ -472,26 +432,29 @@ public sealed class NvapiGpu
     public NvapiStatus TryGetVfpPoints(out IReadOnlyList<VfpTablePoint> points)
     {
         points = [];
-        var rc = ReadMasks(out var masks);
+        NvClockMasks masks;
+        var rc = ReadMasks(&masks);
         if (rc != NvapiStatus.Ok)
         {
             return rc;
         }
 
-        rc = ReadCurve(masks.Mask, out var curve);
+        NvVfpCurve curve;
+        rc = ReadCurve(&masks, &curve);
         if (rc != NvapiStatus.Ok)
         {
             return rc;
         }
 
-        rc = ReadTable(masks.Mask, out var table);
+        NvClockTable table;
+        rc = ReadTable(&masks, &table);
         if (rc != NvapiStatus.Ok)
         {
             return rc;
         }
 
         var result = new List<VfpTablePoint>();
-        for (int i = 0; i < 255; i++)
+        for (int i = 0; i < NvClockBoost.Slots; i++)
         {
             if (masks.Clocks[i].Enabled != 1 || curve.Clocks[i].ClockType != 0)
             {
@@ -523,18 +486,20 @@ public sealed class NvapiGpu
     /// </summary>
     public NvapiStatus TrySetVfpPointOffsets(IReadOnlyDictionary<int, int> offsetsMHzByIndex)
     {
-        if (_setClockBoostTable is null)
+        if (_fn.SetClockBoostTable == null)
         {
             return NvapiStatus.NoImplementation;
         }
 
-        var rc = ReadMasks(out var masks);
+        NvClockMasks masks;
+        var rc = ReadMasks(&masks);
         if (rc != NvapiStatus.Ok)
         {
             return rc;
         }
 
-        rc = ReadTable(masks.Mask, out var table);
+        NvClockTable table;
+        rc = ReadTable(&masks, &table);
         if (rc != NvapiStatus.Ok)
         {
             return rc;
@@ -551,31 +516,28 @@ public sealed class NvapiGpu
             table.Clocks[index].FrequencyDeltaKHz = clamped * TableDeltaPerMHz;
         }
 
-        return _setClockBoostTable(_handle, ref table);
+        return _fn.SetClockBoostTable(_handle, &table);
     }
 
     /// <summary>Clears every per-point offset (a zeroed table write, mask copied in).</summary>
     public NvapiStatus TryClearVfpPointOffsets()
     {
-        if (_setClockBoostTable is null)
+        if (_fn.SetClockBoostTable == null)
         {
             return NvapiStatus.NoImplementation;
         }
 
-        var rc = ReadMasks(out var masks);
+        NvClockMasks masks;
+        var rc = ReadMasks(&masks);
         if (rc != NvapiStatus.Ok)
         {
             return rc;
         }
 
-        var table = new NvClockTable
-        {
-            Version = NvapiNative.MakeVersion<NvClockTable>(1),
-            Mask = (byte[])masks.Mask.Clone(),
-            Unknown1 = new byte[32],
-            Clocks = new NvClockTableEntry[255],
-        };
-        return _setClockBoostTable(_handle, ref table);
+        var table = default(NvClockTable);
+        table.Version = NvapiNative.MakeVersion<NvClockTable>(1);
+        CopyMask(masks.Mask, table.Mask);
+        return _fn.SetClockBoostTable(_handle, &table);
     }
 
     /// <summary>
@@ -584,19 +546,20 @@ public sealed class NvapiGpu
     /// </summary>
     public IReadOnlyList<VfPoint> GetVfCurve()
     {
-        var rc = ReadMasks(out var masks);
-        if (rc != NvapiStatus.Ok)
+        NvClockMasks masks;
+        if (ReadMasks(&masks) != NvapiStatus.Ok)
         {
             return [];
         }
 
-        if (ReadCurve(masks.Mask, out var curve) != NvapiStatus.Ok)
+        NvVfpCurve curve;
+        if (ReadCurve(&masks, &curve) != NvapiStatus.Ok)
         {
             return [];
         }
 
         var points = new List<VfPoint>();
-        for (int i = 0; i < 255; i++)
+        for (int i = 0; i < NvClockBoost.Slots; i++)
         {
             if (masks.Clocks[i].Enabled != 1 || curve.Clocks[i].ClockType != 0)
             {
@@ -620,17 +583,14 @@ public sealed class NvapiGpu
     public NvapiStatus TryGetTempLimitRange(out int minC, out int defaultC, out int maxC)
     {
         minC = defaultC = maxC = 0;
-        if (_thermalPoliciesInfo is null)
+        if (_fn.ThermalPoliciesGetInfo == null)
         {
             return NvapiStatus.FunctionNotFound;
         }
 
-        var info = new NvThermalPoliciesInfo
-        {
-            Version = NvapiNative.MakeVersion<NvThermalPoliciesInfo>(2),
-            Entries = new NvThermalPoliciesInfoEntry[4],
-        };
-        var rc = _thermalPoliciesInfo(_handle, ref info);
+        var info = default(NvThermalPoliciesInfo);
+        info.Version = NvapiNative.MakeVersion<NvThermalPoliciesInfo>(2);
+        var rc = _fn.ThermalPoliciesGetInfo(_handle, &info);
         if (rc != NvapiStatus.Ok || info.Count == 0)
         {
             return rc == NvapiStatus.Ok ? NvapiStatus.DataNotFound : rc;
@@ -645,7 +605,8 @@ public sealed class NvapiGpu
     public NvapiStatus TryGetTempLimit(out int currentC)
     {
         currentC = 0;
-        var rc = ReadThermalStatus(out var status);
+        NvThermalPoliciesStatus status;
+        var rc = ReadThermalStatus(&status);
         if (rc != NvapiStatus.Ok)
         {
             return rc;
@@ -662,33 +623,33 @@ public sealed class NvapiGpu
 
     public NvapiStatus TrySetTempLimit(int targetC)
     {
-        if (_thermalPoliciesSetStatus is null)
+        if (_fn.ThermalPoliciesSetStatus == null)
         {
             return NvapiStatus.FunctionNotFound;
         }
 
-        var rc = ReadThermalStatus(out var status);
+        NvThermalPoliciesStatus status;
+        var rc = ReadThermalStatus(&status);
         if (rc != NvapiStatus.Ok || status.Count == 0)
         {
             return rc == NvapiStatus.Ok ? NvapiStatus.DataNotFound : rc;
         }
 
-        for (int i = 0; i < Math.Min(status.Count, 4); i++)
+        for (int i = 0; i < Math.Min(status.Count, NvThermalPoliciesStatus.MaxEntries); i++)
         {
             status.Entries[i].TargetTemp = targetC << 8;
         }
 
-        return _thermalPoliciesSetStatus(_handle, ref status);
+        return _fn.ThermalPoliciesSetStatus(_handle, &status);
     }
 
-    private NvapiStatus ReadThermalStatus(out NvThermalPoliciesStatus status)
+    private NvapiStatus ReadThermalStatus(NvThermalPoliciesStatus* status)
     {
-        status = new NvThermalPoliciesStatus
-        {
-            Version = NvapiNative.MakeVersion<NvThermalPoliciesStatus>(2),
-            Entries = new NvThermalPoliciesStatusEntry[4],
-        };
-        return _thermalPoliciesGetStatus?.Invoke(_handle, ref status) ?? NvapiStatus.FunctionNotFound;
+        *status = default;
+        status->Version = NvapiNative.MakeVersion<NvThermalPoliciesStatus>(2);
+        return _fn.ThermalPoliciesGetStatus == null
+            ? NvapiStatus.FunctionNotFound
+            : _fn.ThermalPoliciesGetStatus(_handle, status);
     }
 
     // --- Utilization domains -----------------------------------------------------
@@ -697,17 +658,14 @@ public sealed class NvapiGpu
     public NvapiStatus TryGetUtilizationDomains(out int gpu, out int framebuffer, out int video, out int bus)
     {
         gpu = framebuffer = video = bus = 0;
-        if (_getDynamicPstates is null)
+        if (_fn.GetDynamicPstates == null)
         {
             return NvapiStatus.FunctionNotFound;
         }
 
-        var info = new NvDynamicPstatesInfo
-        {
-            Version = NvapiNative.MakeVersion<NvDynamicPstatesInfo>(1),
-            Utilizations = new NvDynamicPstate[8],
-        };
-        var rc = _getDynamicPstates(_handle, ref info);
+        var info = default(NvDynamicPstatesInfo);
+        info.Version = NvapiNative.MakeVersion<NvDynamicPstatesInfo>(1);
+        var rc = _fn.GetDynamicPstates(_handle, &info);
         if (rc == NvapiStatus.Ok)
         {
             gpu = info.Utilizations[0].IsPresent != 0 ? info.Utilizations[0].Percentage : 0;

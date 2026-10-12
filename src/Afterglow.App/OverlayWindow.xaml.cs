@@ -22,11 +22,11 @@ public partial class OverlayWindow : Window
     private const nint WsExNoActivate = 0x08000000;
     private const nint WsExToolWindow = 0x80;
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern nint GetWindowLongPtrW(nint hwnd, int index);
+    [LibraryImport("user32.dll", SetLastError = true)]
+    private static partial nint GetWindowLongPtrW(nint hwnd, int index);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern nint SetWindowLongPtrW(nint hwnd, int index, nint value);
+    [LibraryImport("user32.dll", SetLastError = true)]
+    private static partial nint SetWindowLongPtrW(nint hwnd, int index, nint value);
 
     private readonly AppServices _services;
     private readonly DispatcherTimer _timer;

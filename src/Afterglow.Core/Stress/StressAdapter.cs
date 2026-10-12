@@ -15,7 +15,7 @@ namespace Afterglow.Core.Stress;
 /// NVIDIA adapter with the largest dedicated VRAM, and it fails loudly
 /// rather than silently burning a different card.
 /// </summary>
-public static class StressAdapter
+public static partial class StressAdapter
 {
     private const uint NvidiaVendorId = 0x10DE;
 
@@ -152,7 +152,7 @@ public static class StressAdapter
     private const uint KmtQueryAdapterAddress = 6;
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct KmtOpenAdapterFromLuid
+    internal struct KmtOpenAdapterFromLuid
     {
         public uint LowPart;
         public int HighPart;
@@ -160,7 +160,7 @@ public static class StressAdapter
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct KmtAdapterAddress
+    internal struct KmtAdapterAddress
     {
         public uint BusNumber;
         public uint DeviceNumber;
@@ -168,7 +168,7 @@ public static class StressAdapter
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct KmtQueryAdapterInfo
+    internal struct KmtQueryAdapterInfo
     {
         public uint AdapterHandle;
         public uint Type;
@@ -177,17 +177,17 @@ public static class StressAdapter
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct KmtCloseAdapter
+    internal struct KmtCloseAdapter
     {
         public uint AdapterHandle;
     }
 
-    [DllImport("gdi32.dll")]
-    private static extern int D3DKMTOpenAdapterFromLuid(ref KmtOpenAdapterFromLuid adapter);
+    [LibraryImport("gdi32.dll")]
+    private static partial int D3DKMTOpenAdapterFromLuid(ref KmtOpenAdapterFromLuid adapter);
 
-    [DllImport("gdi32.dll")]
-    private static extern int D3DKMTQueryAdapterInfo(ref KmtQueryAdapterInfo query);
+    [LibraryImport("gdi32.dll")]
+    private static partial int D3DKMTQueryAdapterInfo(ref KmtQueryAdapterInfo query);
 
-    [DllImport("gdi32.dll")]
-    private static extern int D3DKMTCloseAdapter(ref KmtCloseAdapter adapter);
+    [LibraryImport("gdi32.dll")]
+    private static partial int D3DKMTCloseAdapter(ref KmtCloseAdapter adapter);
 }
