@@ -246,11 +246,16 @@ public partial class ProfilesViewModel : ObservableObject
             return $" Driver settings applied and {note} (persist in the driver, active whenever the game runs).";
         }
 
+        // Before 1.2's interop rewrite every profile/app name reached the driver
+        // truncated to its first character, so every create after the first
+        // collided on a profile literally named "A" — which read as "drivers
+        // reject creating profiles". With full names that collision is gone;
+        // if the driver still refuses, say so with its own status, not a theory.
         if (rc is Core.Interop.Nvapi.NvapiStatus.ExecutableNotFound or Core.Interop.Nvapi.NvapiStatus.ProfileNameInUse)
         {
-            return $" Driver settings NOT applied: the driver has no profile for {rule.ExecutableName} and " +
-                   "current NVIDIA drivers reject creating one via NVAPI. Add the game once in NVIDIA Control " +
-                   "Panel (Manage 3D settings → Program Settings), then re-add this rule.";
+            return $" Driver settings NOT applied: the driver did not accept a profile for {rule.ExecutableName} " +
+                   $"({rc}). As a fallback, add the game once in NVIDIA Control Panel (Manage 3D settings → " +
+                   "Program Settings), then re-add this rule.";
         }
 
         return $" Driver settings NOT applied ({rc} {note}).";
