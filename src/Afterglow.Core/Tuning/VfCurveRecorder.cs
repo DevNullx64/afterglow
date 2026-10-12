@@ -233,23 +233,54 @@ public sealed class VfCurveRecorder
     }
 
     // --- Persistence ---------------------------------------------------------
+    //
+    // A measured curve is one card's silicon, and PlanUndervolt turns it into a
+    // core offset plus a clock lock. So a curve file belongs to a GPU identity
+    // (the NVML UUID), never to an enumeration position (F-15, F-55): the file
+    // name is derived from the UUID, the content carries the full UUID, and a
+    // card with no UUID persists nothing at all rather than share a file.
 
     private sealed record PersistedBin(int Key, double MaxClock, double ClockSum, long Samples);
 
+    /// <summary>The on-disk shape: the owning card's identity plus its bins.</summary>
+    private sealed record PersistedCurve(string? GpuUuid, PersistedBin[] Bins);
+
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
 
+    /// <summary>
+    /// The pre-identity shared file, which the primary card used to load
+    /// whatever card it was. It carries no GPU stamp, so nothing it holds can be
+    /// attributed to a card: it is no longer read or written by any recorder,
+    /// and is left on disk untouched.
+    /// </summary>
     public static string DefaultPath => Path.Combine(AppPaths.Root, "vf-curve.json");
 
     /// <summary>
-    /// Per-GPU curve file. The primary GPU keeps the legacy vf-curve.json (its
-    /// data predates multi-GPU and stays valid); other cards get their own file
-    /// so one card's V/F points never plan an undervolt for another.
+    /// A recorder bound to one card: refuses other cards' samples, and loads
+    /// and saves the curve file keyed by that card's UUID. Call
+    /// <see cref="Load(string?)"/> to restore what it measured before.
     /// </summary>
-    public static string PathFor(string? gpuUuid, bool isPrimary)
+    public static VfCurveRecorder ForGpu(uint deviceIndex, string? gpuUuid) => new()
     {
-        if (isPrimary || string.IsNullOrEmpty(gpuUuid))
+        DeviceIndex = deviceIndex,
+        GpuUuid = gpuUuid,
+        PersistPath = PathFor(gpuUuid),
+    };
+
+    /// <summary>
+    /// The curve file for one GPU identity, or null when there is no identity
+    /// to key it by (the driver would not report a UUID). Null means "do not
+    /// persist": two unidentified cards would otherwise share one file and
+    /// merge each other's silicon into it. Every card — primary or not — gets
+    /// its own file; which card NVML happens to enumerate first is not an
+    /// identity, and a card swap or a slot change must not hand one card's
+    /// measured curve to another.
+    /// </summary>
+    public static string? PathFor(string? gpuUuid)
+    {
+        if (string.IsNullOrEmpty(gpuUuid))
         {
-            return DefaultPath;
+            return null;
         }
 
         var keep = new string(gpuUuid.Where(char.IsLetterOrDigit).ToArray());
@@ -258,15 +289,50 @@ public sealed class VfCurveRecorder
             keep = keep[3..];
         }
 
-        string suffix = keep.Length > 0 ? keep[..Math.Min(12, keep.Length)].ToLowerInvariant() : "unknown";
-        return Path.Combine(AppPaths.Root, $"vf-curve-{suffix}.json");
+        if (keep.Length == 0)
+        {
+            return null;
+        }
+
+        // Same naming as the per-card files earlier versions wrote for
+        // secondary cards, so those curves stay with their cards.
+        return Path.Combine(AppPaths.Root, $"vf-curve-{keep[..Math.Min(12, keep.Length)].ToLowerInvariant()}.json");
     }
 
-    /// <summary>File this recorder loads from and saves to (null = <see cref="DefaultPath"/>).</summary>
+    /// <summary>
+    /// Kept for existing callers. <paramref name="isPrimary"/> no longer
+    /// selects the shared legacy file: that was keyed by enumeration position,
+    /// so a different card in the first slot inherited the previous card's
+    /// curve and planned undervolts from it (F-15, F-55).
+    /// </summary>
+    public static string? PathFor(string? gpuUuid, bool isPrimary)
+    {
+        _ = isPrimary;
+        return PathFor(gpuUuid);
+    }
+
+    /// <summary>
+    /// The card this curve belongs to (NVML UUID). Stamped into the saved file;
+    /// a file stamped for a different card is refused on load. Null leaves the
+    /// recorder unidentified (demo mode, tests, callers that don't set it).
+    /// </summary>
+    public string? GpuUuid { get; init; }
+
+    /// <summary>
+    /// File this recorder loads from and saves to. Null = not persisted: a
+    /// <see cref="Save"/> or <see cref="Load"/> without an explicit path does
+    /// nothing (an unidentified card, demo mode).
+    /// </summary>
     public string? PersistPath { get; set; }
 
     public void Save(string? path = null)
     {
+        string? file = path ?? PersistPath;
+        if (file is null)
+        {
+            return;
+        }
+
         try
         {
             AppPaths.EnsureCreated();
@@ -276,7 +342,7 @@ public sealed class VfCurveRecorder
                 data = _bins.Select(kv => new PersistedBin(kv.Key, kv.Value.MaxClock, kv.Value.ClockSum, kv.Value.Samples)).ToArray();
             }
 
-            File.WriteAllText(path ?? PersistPath ?? DefaultPath, JsonSerializer.Serialize(data, JsonOptions));
+            File.WriteAllText(file, JsonSerializer.Serialize(new PersistedCurve(GpuUuid, data), JsonOptions));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -287,13 +353,37 @@ public sealed class VfCurveRecorder
     {
         try
         {
-            string file = path ?? PersistPath ?? DefaultPath;
-            if (!File.Exists(file))
+            string? file = path ?? PersistPath;
+            if (file is null || !File.Exists(file))
             {
                 return;
             }
 
-            var data = JsonSerializer.Deserialize<PersistedBin[]>(File.ReadAllText(file), JsonOptions);
+            // Bare array: written before files were stamped. Its owner is
+            // whatever the path says — a per-card file is keyed by the UUID.
+            using var document = JsonDocument.Parse(File.ReadAllText(file));
+            string? stamp = null;
+            PersistedBin[]? data;
+            if (document.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                data = document.RootElement.Deserialize<PersistedBin[]>(JsonOptions);
+            }
+            else
+            {
+                var curve = document.RootElement.Deserialize<PersistedCurve>(JsonOptions);
+                stamp = curve?.GpuUuid;
+                data = curve?.Bins;
+            }
+
+            if (stamp is not null && GpuUuid is not null &&
+                !string.Equals(stamp, GpuUuid, StringComparison.OrdinalIgnoreCase))
+            {
+                Diagnostics.Log.Warn(
+                    $"V/F curve file {file} belongs to GPU {stamp}, not {GpuUuid}; it was not loaded " +
+                    "(another card's measured curve must never plan this card's undervolt).");
+                return;
+            }
+
             if (data is null)
             {
                 return;

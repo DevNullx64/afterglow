@@ -241,20 +241,25 @@ public sealed class AppServices : IDisposable
 
         AppPaths.EnsureCreated();
 
-        // One curve per GPU, each fed only its own card's snapshots — a second
-        // card's V/F points must never plan an undervolt for the first. The
-        // primary GPU keeps the legacy vf-curve.json.
+        // One curve per GPU, each fed only its own card's snapshots and kept in
+        // a file keyed by that card's UUID — a curve measured on one card must
+        // never plan an undervolt for another. Not even the primary card reads
+        // the old shared vf-curve.json: it carries no identity, and whichever
+        // card enumerates first is not necessarily the card that measured it
+        // (F-15, F-55).
         var vfCurves = new Dictionary<uint, Core.Tuning.VfCurveRecorder>();
         foreach (var gpu in manager.Gpus)
         {
-            var curveRecorder = new Core.Tuning.VfCurveRecorder
-            {
-                DeviceIndex = gpu.Index,
-                PersistPath = Core.Tuning.VfCurveRecorder.PathFor(
-                    gpu.Uuid, isPrimary: gpu.Index == manager.Gpus[0].Index),
-            };
+            var curveRecorder = Core.Tuning.VfCurveRecorder.ForGpu(gpu.Index, gpu.Uuid);
             curveRecorder.Load();
             vfCurves[gpu.Index] = curveRecorder;
+        }
+
+        if (manager.Gpus.Count > 0 && System.IO.File.Exists(Core.Tuning.VfCurveRecorder.DefaultPath))
+        {
+            Core.Diagnostics.Log.Info(
+                "vf-curve.json from an earlier version is not loaded: it carries no GPU identity, so it cannot be " +
+                "attributed to a card. Each card's curve rebuilds from telemetry; the old file is left in place.");
         }
 
         telemetry.SnapshotTaken += snapshot =>
