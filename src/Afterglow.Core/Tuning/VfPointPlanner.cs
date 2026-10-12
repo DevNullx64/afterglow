@@ -16,6 +16,9 @@ public static class VfPointPlanner
     /// <summary>Largest per-point delta the planner will ask for (driver limit is wider).</summary>
     public const int MaxPlannedOffsetMHz = 1000;
 
+    /// <summary>Highest raw table slot (the clock-boost tables carry 255 slots, 0..254).</summary>
+    public const int MaxSlotIndex = 254;
+
     /// <summary>
     /// True when the table carries per-point SHAPE — at least two live slots
     /// with different deltas. A global core offset alone reads the same delta on
@@ -34,6 +37,91 @@ public static class VfPointPlanner
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Refuses a per-point write before anything is written, or returns null
+    /// when it may go ahead. Out-of-range offsets used to be clamped silently by
+    /// the interop and then compared against the same clamp, so "30=9000" wrote
+    /// +1500 and reported "verified" (F-10/F-58). The same ±limit a saved
+    /// profile is validated against now applies at every entry point, and the
+    /// request is refused rather than reduced.
+    /// </summary>
+    /// <param name="liveSlots">
+    /// The live core slots read from the table, or null to check only what can
+    /// be checked without hardware (the CLI does that before opening the GPU).
+    /// A slot outside this set would be skipped by the driver write and then
+    /// fail readback — refusing it up front keeps the write all-or-nothing.
+    /// </param>
+    public static string? ValidatePointOffsets(
+        IReadOnlyDictionary<int, int> offsetsMHzByIndex, IReadOnlySet<int>? liveSlots)
+    {
+        if (offsetsMHzByIndex.Count == 0)
+        {
+            return "No point offsets were given — nothing was written.";
+        }
+
+        foreach (var (index, offset) in offsetsMHzByIndex.OrderBy(pair => pair.Key))
+        {
+            if (index is < 0 or > MaxSlotIndex)
+            {
+                return FormattableString.Invariant(
+                    $"Slot {index} is outside the table (0..{MaxSlotIndex}) — nothing was written.");
+            }
+
+            if (liveSlots is not null && !liveSlots.Contains(index))
+            {
+                return FormattableString.Invariant(
+                    $"Slot {index} is not a live core V/F point on this GPU (list them with `afterglow-cli vfpoints`) — nothing was written.");
+            }
+
+            if (Math.Abs(offset) > NvapiGpu.VfpOffsetLimitMHz)
+            {
+                return FormattableString.Invariant(
+                    $"Slot {index}: {offset:+0;-0} MHz is outside the driver's ±{NvapiGpu.VfpOffsetLimitMHz} MHz per-point range — nothing was written.");
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Verifies a per-point write against what was REQUESTED (F-58: the old
+    /// check compared against the request after the same clamp the write
+    /// applied, so a silently reduced write always matched). Requests reaching
+    /// here have passed <see cref="ValidatePointOffsets"/>, so nothing was
+    /// clamped and the only way to match is for the driver to hold exactly the
+    /// asked-for value.
+    /// </summary>
+    public static KnobResult VerifyPointWrite(
+        IReadOnlyDictionary<int, int> requested, IReadOnlyList<NvapiGpu.VfpTablePoint> readback)
+    {
+        const string knob = "V/F points";
+        var byIndex = new Dictionary<int, int>();
+        foreach (var point in readback)
+        {
+            byIndex[point.Index] = point.OffsetMHz;
+        }
+
+        int matched = 0;
+        string? firstMismatch = null;
+        foreach (var (index, offset) in requested.OrderBy(pair => pair.Key))
+        {
+            if (byIndex.TryGetValue(index, out int actual) && actual == offset)
+            {
+                matched++;
+                continue;
+            }
+
+            firstMismatch ??= byIndex.TryGetValue(index, out actual)
+                ? FormattableString.Invariant($"slot {index}: asked {offset:+0;-0;0} MHz, reads {actual:+0;-0;0} MHz")
+                : FormattableString.Invariant($"slot {index}: missing from the readback");
+        }
+
+        return matched == requested.Count
+            ? KnobResult.Ok(knob, FormattableString.Invariant($"{matched} point offsets (verified)"))
+            : KnobResult.Fail(knob, FormattableString.Invariant(
+                $"driver accepted the write but readback matched only {matched}/{requested.Count} points ({firstMismatch})"));
     }
 
     /// <param name="PointsFlattened">Higher-voltage points capped to the target.</param>

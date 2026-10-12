@@ -512,6 +512,21 @@ public sealed class GpuTuner
             return KnobResult.Fail(knob, "per-point curve control is not supported on this GPU/driver");
         }
 
+        // Refuse, never reduce (F-10/F-58): the interop clamps to ±1500 MHz and
+        // skips slots that are not live core points, both silently. Checking the
+        // request against the live table first keeps the write all-or-nothing
+        // and leaves no clamp for the readback below to hide behind.
+        var preRc = _nvapi.TryGetVfpPoints(out var live);
+        if (preRc != NvapiStatus.Ok)
+        {
+            return KnobResult.Fail(knob, $"the table could not be read before writing ({preRc}) — nothing was written");
+        }
+
+        if (VfPointPlanner.ValidatePointOffsets(offsetsMHzByIndex, live.Select(p => p.Index).ToHashSet()) is string refusal)
+        {
+            return KnobResult.Fail(knob, refusal);
+        }
+
         var rc = _nvapi.TrySetVfpPointOffsets(offsetsMHzByIndex);
         if (rc != NvapiStatus.Ok)
         {
@@ -519,28 +534,13 @@ public sealed class GpuTuner
         }
 
         // Same bar as every other knob: a write only counts once the readback
-        // agrees. Points the driver silently ignored fail the knob loudly.
-        if (_nvapi.TryGetVfpPoints(out var readback) == NvapiStatus.Ok)
-        {
-            var byIndex = readback.ToDictionary(p => p.Index, p => p.OffsetMHz);
-            int applied = 0;
-            foreach (var (index, offset) in offsetsMHzByIndex)
-            {
-                int expected = Math.Clamp(
-                    offset, -Interop.Nvapi.NvapiGpu.VfpOffsetLimitMHz, Interop.Nvapi.NvapiGpu.VfpOffsetLimitMHz);
-                if (byIndex.TryGetValue(index, out int actual) && actual == expected)
-                {
-                    applied++;
-                }
-            }
-
-            return applied == offsetsMHzByIndex.Count
-                ? KnobResult.Ok(knob, $"{applied} point offsets (verified)")
-                : KnobResult.Fail(knob,
-                    $"driver accepted the write but readback matched only {applied}/{offsetsMHzByIndex.Count} points");
-        }
-
-        return KnobResult.Ok(knob, $"{offsetsMHzByIndex.Count} point offsets (readback unavailable)");
+        // agrees with what was asked for. Points the driver silently ignored or
+        // altered fail the knob loudly.
+        var readRc = _nvapi.TryGetVfpPoints(out var readback);
+        return readRc == NvapiStatus.Ok
+            ? VfPointPlanner.VerifyPointWrite(offsetsMHzByIndex, readback)
+            : KnobResult.Ok(knob,
+                $"{offsetsMHzByIndex.Count} point offsets written — not verified (the table did not read back: {readRc})");
     }
 
     private void ApplyOffset(

@@ -69,6 +69,14 @@ internal static class VfPointsCommand
                 offsets[index] = offset;
             }
 
+            // Refused, not clamped (F-10): "30=9000" is a typo, not a request
+            // for the +1500 MHz the driver would have been handed instead.
+            if (VfPointPlanner.ValidatePointOffsets(offsets, liveSlots: null) is string refusal)
+            {
+                Console.Error.WriteLine(refusal);
+                return 2;
+            }
+
             var result = gpu.Tuner.SetVfPointOffsets(offsets);
             Console.WriteLine($"{result.Knob}: {(result.Applied ? "ok" : "FAILED")} — {result.Detail}");
             return result.Applied ? 0 : 1;

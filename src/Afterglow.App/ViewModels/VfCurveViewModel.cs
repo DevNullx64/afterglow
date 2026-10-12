@@ -152,7 +152,16 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
             return;
         }
 
-        var result = _gpu.Tuner.SetVfPointOffsets(new Dictionary<int, int> { [point.Index] = offset });
+        // Refused here, not clamped downstream (F-10): typing 9000 used to write
+        // +1500 and report it "verified". The tuner re-checks against the table.
+        var request = new Dictionary<int, int> { [point.Index] = offset };
+        if (VfPointPlanner.ValidatePointOffsets(request, liveSlots: null) is string refusal)
+        {
+            VfpStatusText = refusal;
+            return;
+        }
+
+        var result = _gpu.Tuner.SetVfPointOffsets(request);
         VfpStatusText = $"{result.Knob}: {(result.Applied ? "ok" : "FAILED")} — {result.Detail}";
         RefreshVfPoints();
     }
