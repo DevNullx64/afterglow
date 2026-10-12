@@ -50,11 +50,8 @@ internal static class VfCurveCommand
             return 2;
         }
 
-        var recorder = new VfCurveRecorder
-        {
-            DeviceIndex = gpu.Index,
-            PersistPath = VfCurveRecorder.PathFor(gpu.Uuid, isPrimary: gpu.Index == manager.Gpus[0].Index),
-        };
+        // Same identity-keyed, UUID-stamped file the app uses for this card (F-15).
+        var recorder = VfCurveRecorder.ForGpu(gpu.Index, gpu.Uuid);
         if (!fresh)
         {
             recorder.Load();
