@@ -210,8 +210,10 @@ public sealed class VfCurveChart : FrameworkElement
                 _maxF = _minF + 200;
             }
 
-            // Clock gridlines on round numbers, like the other graphs.
-            (_minF, _maxF, _fStep) = AxisScale.Nice(_minF, _maxF, double.NaN, double.NaN);
+            // Gridlines on round clocks inside the range. The range itself stays tight to
+            // the data: snapping it outward (as the time graphs do) left the curve using
+            // half the plot height and halved the click-to-target precision.
+            _fStep = AxisScale.Nice(_minF, _maxF, double.NaN, double.NaN).Step;
         }
 
         // X axis: the unit rides on the last tick's label instead of floating
@@ -233,8 +235,8 @@ public sealed class VfCurveChart : FrameworkElement
             dc.DrawText(formatted, new Point(Math.Max(2, x), r.Bottom + 5));
         }
 
-        double fStep = _fStep > 0 ? _fStep : (_maxF - _minF) / 4;
-        for (double f = _minF; f <= _maxF + 0.01; f += fStep)
+        double fStep = double.IsFinite(_fStep) && _fStep > 0 ? _fStep : (_maxF - _minF) / 4;
+        for (double f = Math.Ceiling(_minF / fStep) * fStep; f <= _maxF + 0.01 && fStep > 0; f += fStep)
         {
             var p = ToScreen(_minV, f);
             dc.DrawLine(GridPen, new Point(r.X, p.Y), new Point(r.Right, p.Y));

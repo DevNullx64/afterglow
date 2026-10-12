@@ -69,6 +69,7 @@
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Button Style="{StaticResource GhostButton}" Margin="0,0,8,0"
+                                                    AutomationProperties.Name="{Binding StringFormat='Fan {0} only'}"
                                                     Command="{Binding DataContext.SetSingleFanCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                     CommandParameter="{Binding}">
                                                 <TextBlock>

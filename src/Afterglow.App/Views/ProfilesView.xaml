@@ -93,7 +93,7 @@
                                                 </Border>
                                             </StackPanel>
                                             <TextBlock Style="{StaticResource Caption}" Margin="0,2,0,0">
-                                                <Run Text="core " /><Run Text="{Binding CoreOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · mem " /><Run Text="{Binding MemOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · power " /><Run Text="{Binding PowerLimitW, Mode=OneWay, StringFormat=F0}" /><Run Text=" W · fans " /><Run Text="{Binding FanMode, Mode=OneWay}" />
+                                                <Run Text="core " /><Run Text="{Binding CoreOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · mem " /><Run Text="{Binding MemOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · power " /><Run Text="{Binding PowerLimitW, Mode=OneWay, StringFormat='{}{0:F0} W', TargetNullValue='unchanged'}" /><Run Text=" · fans " /><Run Text="{Binding FanMode, Mode=OneWay}" />
                                             </TextBlock>
                                         </StackPanel>
                                         <TextBlock Grid.Column="1" Text="{Binding ModifiedAt, Mode=OneWay, StringFormat=g}"
@@ -119,7 +119,8 @@
                                         ToolTip="Confirms you've tested this profile under load (Stability page). Required before it may apply itself at startup." />
                             </WrapPanel>
                             <Button Grid.Column="1" Style="{StaticResource SubtleButton}" FontSize="14" MinHeight="32"
-                                    Command="{Binding DeleteSelectedCommand}" VerticalAlignment="Top">
+                                    Command="{Binding DeleteSelectedCommand}" VerticalAlignment="Top"
+                                    AutomationProperties.Name="Delete profile">
                                 <TextBlock><Run Text="&#xE74D;" FontFamily="{StaticResource IconFont}" FontSize="12" /><Run Text="  Delete" /></TextBlock>
                             </Button>
                         </Grid>

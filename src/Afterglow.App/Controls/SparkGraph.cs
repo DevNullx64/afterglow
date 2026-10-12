@@ -285,11 +285,16 @@ public sealed class SparkGraph : FrameworkElement
         if (ShowScale)
         {
             (min, max, tickStep) = AxisScale.Nice(min, max, FixedMin, FixedMax);
+            if (!double.IsFinite(tickStep) || tickStep <= 0)
+            {
+                tickStep = (max - min) / 4;
+            }
+
             tickCount = Math.Clamp((int)Math.Round((max - min) / tickStep), 1, MaxTicks);
             double widest = 0;
             for (int t = 0; t <= tickCount; t++)
             {
-                widest = Math.Max(widest, ScaleLabel(t, Format(min + (t * tickStep)), dpi).Width);
+                widest = Math.Max(widest, ScaleLabel(t, FormatTick(min + (t * tickStep), tickStep), dpi).Width);
             }
 
             plotLeft = Math.Ceiling(widest + GutterGap);
@@ -361,7 +366,7 @@ public sealed class SparkGraph : FrameworkElement
             // Right-aligned in the gutter, centred on its gridline, kept inside the graph.
             for (int t = 0; t <= tickCount; t++)
             {
-                FormattedText label = ScaleLabel(t, Format(min + (t * tickStep)), dpi);
+                FormattedText label = ScaleLabel(t, FormatTick(min + (t * tickStep), tickStep), dpi);
                 double y = height - (height * t / tickCount) - (label.Height / 2);
                 y = Math.Clamp(y, 0, height - label.Height);
                 dc.DrawText(label, new Point(plotLeft - GutterGap - label.Width, y));
@@ -509,6 +514,19 @@ public sealed class SparkGraph : FrameworkElement
             text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, LabelTypeface, 11, LabelBrush, dpi);
         _scaleLabels[slot] = (text, dpi, formatted);
         return formatted;
+    }
+
+    /// <summary>An axis label with exactly the decimals its step needs (0.25 steps: two).</summary>
+    private static string FormatTick(double value, double step)
+    {
+        int decimals = 0;
+        while (decimals < 4 && Math.Abs((step * Math.Pow(10, decimals)) - Math.Round(step * Math.Pow(10, decimals))) > 1e-9)
+        {
+            decimals++;
+        }
+
+        string pattern = decimals == 0 ? "#,##0" : "#,##0." + new string('#', decimals);
+        return value.ToString(pattern, CultureInfo.InvariantCulture);
     }
 
     private static string Format(double value) =>

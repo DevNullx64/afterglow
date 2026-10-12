@@ -207,9 +207,6 @@
                                     <DataTrigger Binding="{Binding LastApplyFailed}" Value="True">
                                         <Setter Property="Foreground" Value="{StaticResource Bad}" />
                                     </DataTrigger>
-                                    <DataTrigger Binding="{Binding HasPendingChanges}" Value="True">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                    </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </TextBlock.Style>
