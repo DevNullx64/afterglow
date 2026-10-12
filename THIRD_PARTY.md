@@ -24,7 +24,22 @@ Test-only: xunit, Microsoft.NET.Test.Sdk, coverlet.
 
 ## Knowledge provenance (no code copied)
 
-The NVAPI interface IDs and structure layouts used by `Afterglow.Core` are
-constants published by open-source projects (LibreHardwareMonitor, MPL-2.0;
-NvAPIWrapper, MIT) and were re-declared in this codebase from those references —
-see `docs/research/driver-apis.md` for the full provenance table.
+The NVAPI interface IDs and the general-purpose structure layouts used by
+`Afterglow.Core` are constants published by open-source projects
+(LibreHardwareMonitor, MPL-2.0; NvAPIWrapper, MIT) and were re-declared in this
+codebase from those references — see `docs/research/driver-apis.md` for the
+provenance table.
+
+The **per-point V/F clock-boost** layouts specifically — the `NvClockMasks`,
+`NvVfpCurve` and `NvClockTable` structures and the Get/Set call sequence behind
+the per-point curve editor — were derived from the field-proven layouts in
+**nvapioc by Demion** (<https://github.com/Demion/nvapioc>), as the source
+comment at `src/Afterglow.Core/Interop/Nvapi/NvapiNative.cs` records; the delta
+scale was then calibrated live against a known global offset on RTX 5090. No
+code is copied from nvapioc — only the wire layouts and call order, which are
+functional interface facts — and Afterglow re-declares them independently. Its
+license could not be confirmed from the information available offline in this
+repository; it is credited here as the reference these layouts were derived
+from, and its license is **unconfirmed**. (The earlier, broken 80+23 layout
+Afterglow once used — the one behind the retracted "RTX 50 blocks the curve
+interfaces" claim — was the NvAPIWrapper/LHM-style layout, not nvapioc's.)
