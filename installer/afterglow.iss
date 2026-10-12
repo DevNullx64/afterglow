@@ -70,7 +70,7 @@ procedure RegisterStartupTask;
 var
   ResultCode: Integer;
 begin
-  if not IsTaskSelected('startup') then
+  if not WizardIsTaskSelected('startup') then
     exit;
 
   if Exec(ExpandConstant('{app}\Afterglow.exe'), '--register-startup', '',
