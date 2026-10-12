@@ -26,6 +26,9 @@ public sealed class CaptionHitTestTests
         "RadioButton", "RepeatButton", "Slider", "TabControl", "TextBox", "ToggleButton",
     ];
 
+    private static readonly System.Buffers.SearchValues<char> HexDigits =
+        System.Buffers.SearchValues.Create("0123456789abcdefABCDEF");
+
     [Fact]
     public void Gpu_selector_in_the_title_bar_is_clickable_not_a_drag_handle()
     {
@@ -87,6 +90,30 @@ public sealed class CaptionHitTestTests
             "A container holding the window title is hit-test-visible in chrome, which stops the user dragging the window by its title bar: "
             + string.Join(", ", blanketed));
     }
+
+    [Fact]
+    public void Main_window_takes_every_colour_from_the_palette()
+    {
+        var root = MainWindowXaml();
+
+        string[] literals =
+        [
+            .. root.DescendantsAndSelf().SelectMany(e => e.Attributes()
+                .Where(a => IsHexColour(a.Value))
+                .Select(a => e.Name.LocalName + " " + a.Name.LocalName + "=\"" + a.Value + "\"")),
+            .. root.DescendantsAndSelf()
+                .Where(e => !e.HasElements && IsHexColour(e.Value.Trim()))
+                .Select(e => e.Name.LocalName + " " + e.Value.Trim()),
+        ];
+
+        Assert.True(literals.Length == 0,
+            "Hard-coded colours in MainWindow.xaml; name them in Theme/Palette.xaml instead: "
+            + string.Join(", ", literals));
+    }
+
+    /// <summary>#RGB, #ARGB, #RRGGBB or #AARRGGBB.</summary>
+    private static bool IsHexColour(string value) =>
+        value.Length is 4 or 5 or 7 or 9 && value[0] == '#' && value.AsSpan(1).IndexOfAnyExcept(HexDigits) < 0;
 
     /// <summary>True when the element, or anything between it and the caption root, opts out of the caption.</summary>
     private static bool IsClickableInChrome(XElement element, XElement captionRoot)

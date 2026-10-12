@@ -35,6 +35,12 @@
     <SolidColorBrush x:Key="Warn" Color="{StaticResource WarnColor}" />
     <SolidColorBrush x:Key="Bad" Color="{StaticResource BadColor}" />
 
+    <!-- Warning surfaces: the crash banners and the "monitoring only" title-bar badge. -->
+    <Color x:Key="WarnSurfaceColor">#2E1E12</Color>
+    <Color x:Key="WarnSoftColor">#33E8B33C</Color>
+    <SolidColorBrush x:Key="WarnSurface" Color="{StaticResource WarnSurfaceColor}" />
+    <SolidColorBrush x:Key="WarnSoft" Color="{StaticResource WarnSoftColor}" />
+
     <!-- Metric series colors (shared by graphs, legends, and the overlay). -->
     <Color x:Key="SeriesClockColor">#58A6FF</Color>
     <Color x:Key="SeriesTempColor">#FF6B5B</Color>

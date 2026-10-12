@@ -104,7 +104,7 @@
                           shell:WindowChrome.IsHitTestVisibleInChrome="True"
                           ToolTip="Every page follows the selected GPU; runs already in flight keep the card they started on"
                           Visibility="{Binding HasMultipleGpus, Converter={x:Static views:Converters.BoolToVisibility}}" />
-                <Border Background="#33E8B33C" CornerRadius="6" Padding="8,3" Margin="8,0,0,0"
+                <Border Background="{StaticResource WarnSoft}" CornerRadius="6" Padding="8,3" Margin="8,0,0,0"
                         VerticalAlignment="Center"
                         Visibility="{Binding ShowElevationBadge, Converter={x:Static views:Converters.BoolToVisibility}}">
                     <TextBlock Text="{Binding ElevationBadge}" FontSize="11" Foreground="{StaticResource Warn}" />
@@ -120,7 +120,7 @@
 
         <!-- Crash-recovery + crash-forensics banners -->
         <StackPanel Grid.Row="1">
-            <Border Background="#2E1E12" BorderBrush="{StaticResource Warn}" BorderThickness="0,0,0,1"
+            <Border Background="{StaticResource WarnSurface}" BorderBrush="{StaticResource Warn}" BorderThickness="0,0,0,1"
                     Padding="16,10"
                     Visibility="{Binding ShowCrashBanner, Converter={x:Static views:Converters.BoolToVisibility}}">
                 <Grid>
@@ -137,7 +137,7 @@
                             Command="{Binding DismissCrashBannerCommand}" Margin="8,0,0,0" />
                 </Grid>
             </Border>
-            <Border Background="#2E1E12" BorderBrush="{StaticResource Warn}" BorderThickness="0,0,0,1"
+            <Border Background="{StaticResource WarnSurface}" BorderBrush="{StaticResource Warn}" BorderThickness="0,0,0,1"
                     Padding="16,10"
                     Visibility="{Binding ShowForensicsBanner, Converter={x:Static views:Converters.BoolToVisibility}}">
                 <Grid>
