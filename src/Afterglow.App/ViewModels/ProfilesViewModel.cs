@@ -299,16 +299,18 @@ public partial class ProfilesViewModel : ObservableObject
             var (fanMode, fixedPct, curve) = _fans.CurrentConfig;
             var gpu = _services.SelectedGpu;
 
-            // Per-point curve offsets are part of the picture too (20/30/40
-            // series): capture whatever is applied right now.
+            // Per-point curve offsets are part of the picture too, on any GPU
+            // whose driver answered the live probe: capture whatever is applied
+            // right now — the whole table, explicit zeros included, whenever it
+            // holds more than the global core offset (F-02/F-07: dropping the
+            // zeros a flatten writes let re-apply resurrect what was under them).
             IReadOnlyDictionary<int, int>? vfPoints = null;
             bool capturedVfPoints = false;
             if (gpu is { Tuner.Capabilities.SupportsVfPoints: true } &&
                 gpu.Tuner.TryReadVfPoints(out var tablePoints) == Core.Interop.Nvapi.NvapiStatus.Ok)
             {
-                var nonZero = tablePoints.Where(p => p.OffsetMHz != 0)
-                    .ToDictionary(p => p.Index, p => p.OffsetMHz);
-                vfPoints = nonZero.Count > 0 ? nonZero : null;
+                vfPoints = Core.Tuning.VfPointPlanner.CaptureForProfile(
+                    tablePoints, gpu.Tuner.ReadCurrent().CoreOffsetMHz);
 
                 // The table was read, so "none" here is a fact about this card
                 // and applying the profile may remove a curve. A profile that

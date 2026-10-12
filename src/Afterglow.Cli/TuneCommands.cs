@@ -16,8 +16,13 @@ internal static class TuneCommands
 
     public static int Caps(string[] args)
     {
+        if (!TryGpuIndex(args, out uint? gpuIndex))
+        {
+            return 2;
+        }
+
         using var manager = new GpuManager();
-        if (SelectGpu(manager, args) is not { } gpu)
+        if (SelectGpu(manager, gpuIndex) is not { } gpu)
         {
             return 1;
         }
@@ -50,8 +55,13 @@ internal static class TuneCommands
 
     public static int Get(string[] args)
     {
+        if (!TryGpuIndex(args, out uint? gpuIndex))
+        {
+            return 2;
+        }
+
         using var manager = new GpuManager();
-        if (SelectGpu(manager, args) is not { } gpu)
+        if (SelectGpu(manager, gpuIndex) is not { } gpu)
         {
             return 1;
         }
@@ -96,6 +106,13 @@ internal static class TuneCommands
         bool unlock = false;
         string? fan = null;
 
+        // Before anything else: `set --gpu one --core-offset 200` used to apply
+        // the offset to GPU 0 (F-09). A bad --gpu is a usage error, exit 2.
+        if (!TryGpuIndex(args, out uint? gpuIndex))
+        {
+            return 2;
+        }
+
         for (int i = 1; i < args.Length; i++)
         {
             string arg = args[i];
@@ -135,7 +152,7 @@ internal static class TuneCommands
                     i++;
                     break;
                 case "--gpu":
-                    i++;
+                    i++; // value already validated by TryGpuIndex
                     break;
                 default:
                     Console.Error.WriteLine($"Unknown or malformed option '{arg}'.");
@@ -144,7 +161,7 @@ internal static class TuneCommands
         }
 
         using var manager = new GpuManager();
-        if (SelectGpu(manager, args) is not { } gpu)
+        if (SelectGpu(manager, gpuIndex) is not { } gpu)
         {
             return 1;
         }
@@ -217,8 +234,13 @@ internal static class TuneCommands
 
     public static int Reset(string[] args)
     {
+        if (!TryGpuIndex(args, out uint? gpuIndex))
+        {
+            return 2;
+        }
+
         using var manager = new GpuManager();
-        if (SelectGpu(manager, args) is not { } gpu)
+        if (SelectGpu(manager, gpuIndex) is not { } gpu)
         {
             return 1;
         }
@@ -232,7 +254,23 @@ internal static class TuneCommands
         return result.AllSucceeded ? 0 : 1;
     }
 
-    private static GpuContext? SelectGpu(GpuManager manager, string[] args)
+    /// <summary>
+    /// The shared, strict `--gpu` parse (CliGpu.TryParseIndex). This file used
+    /// to carry its own copy whose `uint index = 0` survived any value that did
+    /// not parse, so a typo tuned GPU 0 (F-09).
+    /// </summary>
+    private static bool TryGpuIndex(string[] args, out uint? gpuIndex)
+    {
+        if (CliGpu.TryParseIndex(args, out gpuIndex, out string? error))
+        {
+            return true;
+        }
+
+        Console.Error.WriteLine(error);
+        return false;
+    }
+
+    private static GpuContext? SelectGpu(GpuManager manager, uint? requestedIndex)
     {
         if (manager.Gpus.Count == 0)
         {
@@ -240,15 +278,7 @@ internal static class TuneCommands
             return null;
         }
 
-        uint index = 0;
-        for (int i = 1; i < args.Length - 1; i++)
-        {
-            if (args[i] == "--gpu" && uint.TryParse(args[i + 1], out uint g))
-            {
-                index = g;
-            }
-        }
-
+        uint index = requestedIndex ?? 0;
         var gpu = manager.Gpus.FirstOrDefault(g => g.Index == index);
         if (gpu is null)
         {

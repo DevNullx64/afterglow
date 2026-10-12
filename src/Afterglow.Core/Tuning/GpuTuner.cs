@@ -70,6 +70,38 @@ public static class TuningMath
 
         return Math.Min(Math.Max(requested, minSpinDuty), 100);
     }
+
+    /// <summary>
+    /// Spin floor used when the driver will not state one. NVML documents the
+    /// minimum as typically 30–100 % (docs/research/driver-apis.md), and the
+    /// RTX 5090 reports exactly 30.
+    /// </summary>
+    public const uint FallbackMinSpinDutyPct = 30;
+
+    /// <summary>
+    /// The fixed-fan spin floor from the driver's min/max query (F-22). The
+    /// query's out parameter is written even when it fails, so taking it as-is
+    /// turned "unsupported" into a 0 % floor: a requested 5 % then reached the
+    /// fans unrounded and could stall them in manual mode. Only a successful,
+    /// plausible report is trusted; anything else keeps the conservative floor.
+    /// A reported 0 is not trusted either — 0 % stays reachable as the explicit
+    /// fan-stop request <see cref="NormalizeFixedFanDuty"/> passes through.
+    /// </summary>
+    public static uint ResolveMinSpinDuty(bool querySucceeded, uint reportedMinPct) =>
+        querySucceeded && reportedMinPct is > 0 and <= 100 ? reportedMinPct : FallbackMinSpinDutyPct;
+
+    /// <summary>
+    /// A driver-reported default (temp limit, power limit) the reset path may
+    /// write back, or null when it is not one (F-24): the reset used to write
+    /// the temp-limit default with no check at all, while every other path
+    /// clamps that knob into the driver's own range. A default outside the range
+    /// the same driver reports — or a zero, the shape of a failed query — is
+    /// not something to send to hardware on the panic path.
+    /// </summary>
+    public static double? UsableDefault(double reportedDefault, double min, double max) =>
+        reportedDefault > 0 && min <= max && reportedDefault >= min && reportedDefault <= max
+            ? reportedDefault
+            : null;
 }
 
 public sealed record KnobResult(string Knob, bool Applied, string Detail)
@@ -126,6 +158,25 @@ public sealed class GpuTuner
     public string? GpuUuid => _gpuUuid;
 
     /// <summary>
+    /// Raised after every call that may have changed what this card runs —
+    /// profile apply, reset, per-point writes and clears, clock-lock changes —
+    /// whoever made it: a page, a hotkey, the TDR watchdog, the stability
+    /// stepper, the certifier, the V/F probe. Pages that display applied state
+    /// re-read on it, so a write made in one place never leaves another page
+    /// showing a curve or offsets the card no longer has (F-08, F-75).
+    /// Raised on the writing thread after the tuner's lock is released;
+    /// handlers must not block (marshal to the UI thread asynchronously), and
+    /// an exception in one is logged and never reaches the write path.
+    /// </summary>
+    public event Action<GpuTuner>? StateWritten;
+
+    private T Notify<T>(T result)
+    {
+        WriteNotification.Raise(StateWritten, this);
+        return result;
+    }
+
+    /// <summary>
     /// The clock lock Afterglow last applied (null = none). NVML has no getter
     /// for locked clocks, so this is Afterglow-tracked state, persisted across
     /// restarts via the applied-state file.
@@ -152,12 +203,22 @@ public sealed class GpuTuner
         _ = _nvml.TryGetMaxClock(NvmlClockType.Graphics, out uint maxClock);
 
         uint fanCount = 0;
-        uint fanMin = 30;
+        uint fanMin = TuningMath.FallbackMinSpinDutyPct;
         bool fanControl = false;
         if (_nvml.TryGetNumFans(out uint fans) == NvmlReturn.Success && fans > 0)
         {
             fanCount = fans;
-            _ = _nvml.TryGetMinMaxFanSpeed(out fanMin, out _);
+
+            // Never `out fanMin` directly: the call writes its out value even on
+            // failure, which silently replaced the fallback with 0 (F-22).
+            var minRc = _nvml.TryGetMinMaxFanSpeed(out uint reportedMin, out _);
+            fanMin = TuningMath.ResolveMinSpinDuty(minRc == NvmlReturn.Success, reportedMin);
+            if (minRc != NvmlReturn.Success || fanMin != reportedMin)
+            {
+                Log.Warn($"Fan minimum duty: driver query returned {minRc} ({reportedMin}%); " +
+                         $"using a conservative {fanMin}% spin floor for fixed-duty fan control.");
+            }
+
             fanControl = true;
         }
 
@@ -251,7 +312,10 @@ public sealed class GpuTuner
     /// profile assembled from <see cref="ReadCurrent"/> — which cannot see
     /// per-point offsets — can never delete a curve the user did not ask to lose.
     /// </param>
-    public ApplyResult Apply(TuningProfile profile, bool reconcileVfPoints = true)
+    public ApplyResult Apply(TuningProfile profile, bool reconcileVfPoints = true) =>
+        Notify(ApplyUnderLock(profile, reconcileVfPoints));
+
+    private ApplyResult ApplyUnderLock(TuningProfile profile, bool reconcileVfPoints)
     {
         lock (_applyLock)
         {
@@ -298,7 +362,9 @@ public sealed class GpuTuner
     }
 
     /// <summary>Returns every knob this engine owns to driver defaults.</summary>
-    public ApplyResult ResetToDefaults()
+    public ApplyResult ResetToDefaults() => Notify(ResetUnderLock());
+
+    private ApplyResult ResetUnderLock()
     {
         lock (_applyLock)
         {
@@ -318,10 +384,12 @@ public sealed class GpuTuner
             // offset shares it and was just set to 0 above, so the clear can
             // take nothing else with it. Profile apply reaches the same call
             // only for a profile that recorded a curve reading, and always
-            // writes the core offset again afterwards.
+            // writes the core offset again afterwards. The clear is read back
+            // like every other write (F-57): a panic or TDR reset must not
+            // report a clear it never confirmed.
             if (Capabilities.SupportsVfPoints && _nvapi is not null)
             {
-                ReportNv(results, "V/F points", _nvapi.TryClearVfpPointOffsets(), "cleared");
+                results.Add(ClearVfPointsAndVerify());
             }
 
             var unlockRc = _nvml.TryResetGpuLockedClocks();
@@ -335,17 +403,41 @@ public sealed class GpuTuner
                 Report(results, "clock lock", unlockRc, "unlocked");
             }
 
-            if (Capabilities.SupportsPowerLimit && Capabilities.PowerLimitDefaultW > 0)
+            // Driver-reported defaults are bounded by the same driver's range
+            // before they are written (F-24). One that fails the check is
+            // skipped and reported — a reset that leaves a knob as it was must
+            // say so, not count as a clean reset (the power limit used to be
+            // skipped with no result at all when its default read 0).
+            if (Capabilities.SupportsPowerLimit)
             {
-                Report(results, "power limit",
-                    _nvml.TrySetPowerLimit((uint)(Capabilities.PowerLimitDefaultW * 1000)),
-                    $"{Capabilities.PowerLimitDefaultW:F0} W");
+                if (TuningMath.UsableDefault(
+                        Capabilities.PowerLimitDefaultW, Capabilities.PowerLimitMinW, Capabilities.PowerLimitMaxW)
+                    is double defaultW)
+                {
+                    Report(results, "power limit", _nvml.TrySetPowerLimit((uint)(defaultW * 1000)), $"{defaultW:F0} W");
+                }
+                else
+                {
+                    results.Add(RefuseDefault("power limit",
+                        $"{Capabilities.PowerLimitDefaultW:F0} W",
+                        $"{Capabilities.PowerLimitMinW:F0}..{Capabilities.PowerLimitMaxW:F0} W"));
+                }
             }
 
             if (Capabilities.SupportsTempLimit && _nvapi is not null)
             {
-                ReportNv(results, "temp limit", _nvapi.TrySetTempLimit(Capabilities.TempLimitDefaultC),
-                    $"{Capabilities.TempLimitDefaultC} C");
+                if (TuningMath.UsableDefault(
+                        Capabilities.TempLimitDefaultC, Capabilities.TempLimitMinC, Capabilities.TempLimitMaxC)
+                    is double defaultC)
+                {
+                    ReportNv(results, "temp limit", _nvapi.TrySetTempLimit((int)defaultC), $"{defaultC:F0} C");
+                }
+                else
+                {
+                    results.Add(RefuseDefault("temp limit",
+                        $"{Capabilities.TempLimitDefaultC} C",
+                        $"{Capabilities.TempLimitMinC}..{Capabilities.TempLimitMaxC} C"));
+                }
             }
 
             if (Capabilities.SupportsVoltageBoost && _nvapi is not null)
@@ -362,6 +454,15 @@ public sealed class GpuTuner
         }
     }
 
+    /// <summary>A reset step skipped because the driver's own default failed its range check (F-24).</summary>
+    private static KnobResult RefuseDefault(string knob, string reportedDefault, string range)
+    {
+        string detail = $"not reset — the driver-reported default {reportedDefault} is outside its own range " +
+                        $"{range} (or was not reported), so it was not written; the current value is unchanged";
+        Log.Warn($"Reset to defaults: {knob} {detail}");
+        return KnobResult.Fail(knob, detail);
+    }
+
     /// <summary>The driver's stored per-point V/F table with applied offsets (empty when unsupported).</summary>
     public NvapiStatus TryReadVfPoints(out IReadOnlyList<Interop.Nvapi.NvapiGpu.VfpTablePoint> points)
     {
@@ -372,27 +473,60 @@ public sealed class GpuTuner
     /// <summary>Writes per-point curve offsets (UI/CLI entry point; serialized with Apply).</summary>
     public KnobResult SetVfPointOffsets(IReadOnlyDictionary<int, int> offsetsMHzByIndex)
     {
+        KnobResult result;
         lock (_applyLock)
         {
-            return ApplyVfPointOffsetsCore(offsetsMHzByIndex);
+            result = ApplyVfPointOffsetsCore(offsetsMHzByIndex);
         }
+
+        return Notify(result);
     }
 
-    /// <summary>Clears all per-point curve offsets (UI/CLI entry point).</summary>
+    /// <summary>
+    /// Clears all per-point curve offsets (UI/CLI entry point), then reads the
+    /// table back: the result says whether per-point shape is really gone and
+    /// what every point reads afterwards (see <see cref="VfPointPlanner.VerifyClear"/>).
+    /// </summary>
     public KnobResult ClearVfPointOffsets()
     {
+        KnobResult result;
         lock (_applyLock)
         {
-            if (!Capabilities.SupportsVfPoints || _nvapi is null)
-            {
-                return KnobResult.Fail("V/F points", "per-point curve control is not supported on this GPU/driver");
-            }
-
-            var rc = _nvapi.TryClearVfpPointOffsets();
-            return rc == NvapiStatus.Ok
-                ? KnobResult.Ok("V/F points", "cleared")
-                : KnobResult.Fail("V/F points", rc.ToString());
+            result = !Capabilities.SupportsVfPoints || _nvapi is null
+                ? KnobResult.Fail("V/F points", "per-point curve control is not supported on this GPU/driver")
+                : ClearVfPointsAndVerify();
         }
+
+        return Notify(result);
+    }
+
+    /// <summary>
+    /// The clear-all write followed by its readback (F-06/F-43/F-57). The global
+    /// core offset is read from the driver after the clear so the report can
+    /// say whether the table still carries it — it did on RTX 5090 / 616.56,
+    /// and the report states what this card did rather than assuming that.
+    /// </summary>
+    private KnobResult ClearVfPointsAndVerify()
+    {
+        var rc = _nvapi!.TryClearVfpPointOffsets();
+        if (rc != NvapiStatus.Ok)
+        {
+            return KnobResult.Fail("V/F points", rc.ToString());
+        }
+
+        var readRc = _nvapi.TryGetVfpPoints(out var after);
+        int? globalCoreOffset = Capabilities.SupportsCoreOffset &&
+            _nvml.TryGetClockOffset(NvmlClockType.Graphics, out var core) == NvmlReturn.Success
+                ? core.ClockOffsetMHz
+                : null;
+
+        var result = VfPointPlanner.VerifyClear(readRc, after, globalCoreOffset);
+        if (!result.Applied)
+        {
+            Log.Warn($"V/F clear: {result.Detail}");
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -512,6 +646,21 @@ public sealed class GpuTuner
             return KnobResult.Fail(knob, "per-point curve control is not supported on this GPU/driver");
         }
 
+        // Refuse, never reduce (F-10/F-58): the interop clamps to ±1500 MHz and
+        // skips slots that are not live core points, both silently. Checking the
+        // request against the live table first keeps the write all-or-nothing
+        // and leaves no clamp for the readback below to hide behind.
+        var preRc = _nvapi.TryGetVfpPoints(out var live);
+        if (preRc != NvapiStatus.Ok)
+        {
+            return KnobResult.Fail(knob, $"the table could not be read before writing ({preRc}) — nothing was written");
+        }
+
+        if (VfPointPlanner.ValidatePointOffsets(offsetsMHzByIndex, live.Select(p => p.Index).ToHashSet()) is string refusal)
+        {
+            return KnobResult.Fail(knob, refusal);
+        }
+
         var rc = _nvapi.TrySetVfpPointOffsets(offsetsMHzByIndex);
         if (rc != NvapiStatus.Ok)
         {
@@ -519,28 +668,13 @@ public sealed class GpuTuner
         }
 
         // Same bar as every other knob: a write only counts once the readback
-        // agrees. Points the driver silently ignored fail the knob loudly.
-        if (_nvapi.TryGetVfpPoints(out var readback) == NvapiStatus.Ok)
-        {
-            var byIndex = readback.ToDictionary(p => p.Index, p => p.OffsetMHz);
-            int applied = 0;
-            foreach (var (index, offset) in offsetsMHzByIndex)
-            {
-                int expected = Math.Clamp(
-                    offset, -Interop.Nvapi.NvapiGpu.VfpOffsetLimitMHz, Interop.Nvapi.NvapiGpu.VfpOffsetLimitMHz);
-                if (byIndex.TryGetValue(index, out int actual) && actual == expected)
-                {
-                    applied++;
-                }
-            }
-
-            return applied == offsetsMHzByIndex.Count
-                ? KnobResult.Ok(knob, $"{applied} point offsets (verified)")
-                : KnobResult.Fail(knob,
-                    $"driver accepted the write but readback matched only {applied}/{offsetsMHzByIndex.Count} points");
-        }
-
-        return KnobResult.Ok(knob, $"{offsetsMHzByIndex.Count} point offsets (readback unavailable)");
+        // agrees with what was asked for. Points the driver silently ignored or
+        // altered fail the knob loudly.
+        var readRc = _nvapi.TryGetVfpPoints(out var readback);
+        return readRc == NvapiStatus.Ok
+            ? VfPointPlanner.VerifyPointWrite(offsetsMHzByIndex, readback)
+            : KnobResult.Ok(knob,
+                $"{offsetsMHzByIndex.Count} point offsets written — not verified (the table did not read back: {readRc})");
     }
 
     private void ApplyOffset(
@@ -710,16 +844,17 @@ public sealed class GpuTuner
     /// </summary>
     public NvmlReturn RestoreTuningLock(uint lockMHz)
     {
+        NvmlReturn rc;
         lock (_applyLock)
         {
-            var rc = _nvml.TrySetGpuLockedClocks(RangeLockFloorMHz, lockMHz);
+            rc = _nvml.TrySetGpuLockedClocks(RangeLockFloorMHz, lockMHz);
             if (rc == NvmlReturn.Success)
             {
                 _appliedLockMHz = lockMHz;
             }
-
-            return rc;
         }
+
+        return Notify(rc);
     }
 
     /// <summary>
@@ -728,16 +863,17 @@ public sealed class GpuTuner
     /// </summary>
     public NvmlReturn LockClockForProbe(uint clockMHz)
     {
+        NvmlReturn rc;
         lock (_applyLock)
         {
-            var rc = _nvml.TrySetGpuLockedClocks(clockMHz, clockMHz);
+            rc = _nvml.TrySetGpuLockedClocks(clockMHz, clockMHz);
             if (rc == NvmlReturn.Success)
             {
                 _appliedLockMHz = clockMHz;
             }
-
-            return rc;
         }
+
+        return Notify(rc);
     }
 
     /// <summary>
@@ -746,20 +882,21 @@ public sealed class GpuTuner
     /// </summary>
     public KnobResult ForceUnlock()
     {
+        NvmlReturn rc;
         lock (_applyLock)
         {
-            var rc = _nvml.TryResetGpuLockedClocks();
+            rc = _nvml.TryResetGpuLockedClocks();
             if (rc == NvmlReturn.Success)
             {
                 _appliedLockMHz = null;
             }
-
-            return rc == NvmlReturn.Success
-                ? KnobResult.Ok("clock lock", "released (explicit)")
-                : KnobResult.Fail("clock lock", rc == NvmlReturn.NoPermission
-                    ? "needs administrator rights"
-                    : rc.ToString());
         }
+
+        return Notify(rc == NvmlReturn.Success
+            ? KnobResult.Ok("clock lock", "released (explicit)")
+            : KnobResult.Fail("clock lock", rc == NvmlReturn.NoPermission
+                ? "needs administrator rights"
+                : rc.ToString()));
     }
 
     /// <summary>Sets all fans to a duty; NVAPI preferred (supports 0%), NVML fallback.</summary>
@@ -1144,6 +1281,37 @@ public static class AppliedStateStore
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 // State tracking must never break an apply.
+            }
+        }
+    }
+}
+
+/// <summary>
+/// Delivers <see cref="GpuTuner.StateWritten"/>. The notification is raised
+/// from hardware-write paths — including the TDR watchdog's and the panic
+/// hotkey's resets — so one subscriber's failure must neither stop the others
+/// nor surface in the code that just wrote the GPU.
+/// </summary>
+public static class WriteNotification
+{
+    public static void Raise<T>(Action<T>? handlers, T sender)
+    {
+        if (handlers is null)
+        {
+            return;
+        }
+
+        foreach (var handler in handlers.GetInvocationList().Cast<Action<T>>())
+        {
+            try
+            {
+                handler(sender);
+            }
+            catch (Exception ex)
+            {
+                // Deliberately broad: a display refresh may fail any way it
+                // likes; the write already happened and must not be undone by it.
+                Log.Error("A tuning-write subscriber failed; the write itself is unaffected.", ex);
             }
         }
     }

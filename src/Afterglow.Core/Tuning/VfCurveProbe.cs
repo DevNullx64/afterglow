@@ -20,10 +20,13 @@ public sealed record VfProbeProgress(
 /// the curve, measured point by point on the real silicon — including the effect
 /// of any applied offset.
 ///
-/// This is how a V/F curve can still be obtained on RTX 50, where NVIDIA has
-/// removed the curve query and rejects curve writes. Requires elevation (clock
-/// locking is a privileged operation) and restores the previous lock state when
-/// finished or cancelled.
+/// This complements the driver's stored V/F table (which Afterglow reads and
+/// writes on every GPU that answers the probe, RTX 50 included): the table says
+/// what the driver intends, the probe measures what the GPU actually runs under
+/// load. (This comment used to say RTX 50 removed the curve query and rejected
+/// curve writes — retracted: that was a struct-layout bug of ours, F-51.)
+/// Requires elevation (clock locking is a privileged operation) and restores
+/// the previous lock state when finished or cancelled.
 /// </summary>
 public sealed class VfCurveProbe
 {
