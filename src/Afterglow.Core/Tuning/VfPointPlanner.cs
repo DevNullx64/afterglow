@@ -40,6 +40,41 @@ public static class VfPointPlanner
     }
 
     /// <summary>
+    /// What a saved profile records of the table (F-02/F-07). Applying a
+    /// profile writes the core offset — which levels every slot to it on the
+    /// hardware this was measured on — and then only the slots the profile
+    /// carries; any slot it leaves out keeps whatever is in the table at that
+    /// moment. The old capture kept only non-zero slots, so the explicit zeros
+    /// a flatten writes below its anchor were dropped and came back as the
+    /// profile's core offset (or as a stale manual edit) on re-apply, under a
+    /// "verified" label because only the carried slots are re-checked.
+    ///
+    /// So: when every live slot reads exactly the global core offset, the
+    /// table holds nothing the core offset alone won't reproduce and no points
+    /// are recorded (null — the profile still records that it read the table).
+    /// Otherwise EVERY live slot is recorded, zeros included, so re-apply
+    /// replaces the whole curve instead of merging into whatever is there.
+    /// </summary>
+    /// <param name="table">The live table as read back (offsets are what each slot holds).</param>
+    /// <param name="globalCoreOffsetMHz">The core offset the driver reports right now.</param>
+    public static IReadOnlyDictionary<int, int>? CaptureForProfile(
+        IReadOnlyList<NvapiGpu.VfpTablePoint> table, int globalCoreOffsetMHz)
+    {
+        if (table.All(point => point.OffsetMHz == globalCoreOffsetMHz))
+        {
+            return null;
+        }
+
+        var captured = new Dictionary<int, int>(table.Count);
+        foreach (var point in table)
+        {
+            captured[point.Index] = point.OffsetMHz;
+        }
+
+        return captured;
+    }
+
+    /// <summary>
     /// Refuses a per-point write before anything is written, or returns null
     /// when it may go ahead. Out-of-range offsets used to be clamped silently by
     /// the interop and then compared against the same clamp, so "30=9000" wrote

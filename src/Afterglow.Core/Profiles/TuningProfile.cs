@@ -54,7 +54,14 @@ public sealed record TuningProfile
     /// <summary>Curve used when <see cref="FanMode.Curve"/>.</summary>
     public FanCurveConfig? FanCurve { get; init; }
 
-    /// <summary>Per-point V/F curve offsets (MHz), keyed by curve point index; empty when unused.</summary>
+    /// <summary>
+    /// Per-point V/F curve offsets (MHz), keyed by raw table slot; null when the
+    /// table held nothing beyond the global core offset. When present it is the
+    /// WHOLE live table, explicit zeros included — apply writes only the slots
+    /// listed here, so a missing slot would keep whatever the table holds at
+    /// apply time instead of the value that was saved (see
+    /// <see cref="Tuning.VfPointPlanner.CaptureForProfile"/>).
+    /// </summary>
     public IReadOnlyDictionary<int, int>? VfPointOffsetsMHz { get; init; }
 
     /// <summary>
