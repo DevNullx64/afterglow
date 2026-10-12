@@ -24,4 +24,12 @@
     <ProjectReference Include="..\..\src\Afterglow.Core\Afterglow.Core.csproj" />
   </ItemGroup>
 
+  <!-- The CLI's argument parsing, compiled in so it is tested without running
+       the exe (whose write commands would open the GPU). Parsing only — no
+       test calls Run. -->
+  <ItemGroup>
+    <Compile Include="..\..\src\Afterglow.Cli\CliGpu.cs" Link="Cli\CliGpu.cs" />
+    <Compile Include="..\..\src\Afterglow.Cli\VfPointsCommand.cs" Link="Cli\VfPointsCommand.cs" />
+  </ItemGroup>
+
 </Project>
