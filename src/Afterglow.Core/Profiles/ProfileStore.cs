@@ -62,6 +62,16 @@ public sealed class ProfileStore
         {
             try
             {
+                // ProgramData hardening: when elevated, a profile whose owner is
+                // neither an administrator/SYSTEM nor the current user may have
+                // been planted by a standard user — skip it rather than trust it
+                // for a GPU-write (no-op unelevated / --data-dir).
+                if (!Security.DataRootProtection.MayLoad(file))
+                {
+                    errors.Add((file, "Skipped: file owner is not trusted while running elevated."));
+                    continue;
+                }
+
                 var profile = JsonSerializer.Deserialize<TuningProfile>(File.ReadAllText(file), JsonOptions);
                 if (profile is null)
                 {
@@ -90,6 +100,12 @@ public sealed class ProfileStore
     {
         string path = PathFor(name);
         if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        // Elevated: refuse a profile whose owner is untrusted (see LoadAll).
+        if (!Security.DataRootProtection.MayLoad(path))
         {
             return null;
         }

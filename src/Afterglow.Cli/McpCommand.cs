@@ -47,6 +47,12 @@ internal static class McpCommand
         }
 
         bool elevated = AppServicesLikeElevationCheck();
+
+        // An elevated MCP server reads profiles that can drive GPU writes, so it
+        // locks down the default data root and enables the load-time owner check
+        // too (no-op unelevated or when --data-dir redirected the root).
+        Afterglow.Core.Security.DataRootProtection.EnsureHardened();
+
         var profiles = new ProfileStore();
 
         var tools = BuildTools(manager, gpu, profiles, elevated);
