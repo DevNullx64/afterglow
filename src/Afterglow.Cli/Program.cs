@@ -69,6 +69,15 @@ internal static class Program
               certify --profile NAME        Apply a saved profile, then run all four
                       [--seconds N] [--gpu N]  stability modes against it; each pass is stamped
                                             into the profile, all four = marked stable (admin).
+              drs --exe GAME.exe            Per-game driver settings (the store NVIDIA Control
+                  [--cap FPS] [--clear]     Panel edits); --exe alone prints the current values.
+                  [--vsync default|on|off]
+                  [--low-latency on|off]
+              drs --cleanup [--apply]       Find the one-letter profile "A" that 1.2.0-beta.4 and
+                                            earlier left; a dry run unless --apply, which deletes
+                                            exact matches only (admin).
+              drs --selftest                Create, read back, and remove a throwaway profile
+                                            for a random unknown exe (admin).
               vfcurve [--probe]             Record and print the measured voltage/frequency
                       [--seconds N] [--gpu N]  curve. --probe locks each clock step under load
                       [--load] [--fresh]    and maps the full curve in ~1 min (admin).
@@ -301,7 +310,7 @@ internal static class SelfTest
         Console.WriteLine($"  {label,-26} {status,-24} {(rc == NvmlReturn.Success ? value : string.Empty)}");
     }
 
-    private static bool IsElevated()
+    internal static bool IsElevated()
     {
         using var identity = WindowsIdentity.GetCurrent();
         return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);

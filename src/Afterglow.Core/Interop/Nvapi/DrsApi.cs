@@ -18,6 +18,20 @@ public sealed record GameDriverSettings
 }
 
 /// <summary>
+/// A read-only <see cref="DrsApi.ScanProfiles"/> pass: how many profiles were
+/// enumerated, how many of those GetProfileInfo could not read (so were not
+/// examined), and full snapshots of the ones whose name passed the filter.
+/// </summary>
+public sealed record DrsScanResult(int Scanned, int Unreadable, IReadOnlyList<DrsProfileSnapshot> Profiles);
+
+/// <summary>
+/// What <see cref="DrsApi.DeleteProfiles"/> did per requested name: deleted and
+/// saved, found but refused by the confirmation (left untouched), or absent.
+/// </summary>
+public sealed record DrsDeleteResult(
+    IReadOnlyList<string> Deleted, IReadOnlyList<string> Refused, IReadOnlyList<string> NotFound);
+
+/// <summary>
 /// NVIDIA DRS (driver settings store) — the same per-application settings the
 /// NVIDIA Control Panel edits: frame-rate limiter, vsync, pre-rendered frames.
 /// Settings persist in the driver, so they apply whenever the game runs, with
@@ -43,6 +57,16 @@ public sealed unsafe class DrsApi
     private const uint IdGetProfileInfo = 0x61CD6FD6;
     private const uint IdEnumProfiles = 0xBC371EE0;
 
+    // Profile inspection (leftover cleanup, self-test). Taken from NVIDIA's own
+    // interface table, nvapi_interface.h in github.com/NVIDIA/nvapi (main):
+    // NvAPI_DRS_EnumApplications 0x7fa2173a, NvAPI_DRS_EnumSettings 0xae3039da
+    // — the same table every ID above matches. Signatures per nvapi.h:
+    // (hSession, hProfile, NvU32 startIndex, NvU32* count [in: array length,
+    // out: entries returned], NVDRS_APPLICATION* / NVDRS_SETTING* array);
+    // NVAPI_END_ENUMERATION once startIndex passes the last entry.
+    private const uint IdEnumApplications = 0x7FA2173A;
+    private const uint IdEnumSettings = 0xAE3039DA;
+
     // Setting IDs (NvApiDriverSettings.h).
     public const uint FrameRateLimiterId = 0x10835002;   // FRL_FPS_ID: fps, 0 = off
     public const uint VsyncModeId = 0x00A879CF;          // VSYNCMODE_ID
@@ -53,6 +77,9 @@ public sealed unsafe class DrsApi
     public const uint VsyncForceOn = 0x47814940;
 
     private const string ProfilePrefix = "Afterglow - ";
+
+    /// <summary>Upper bound on any enumeration loop (the store holds ~8,000 profiles).</summary>
+    private const uint MaxEnumeration = 100_000;
 
     // Wire structs. NVAPI strings are NvAPI_UnicodeString (NvU16[2048], UTF-16),
     // and `fixed char` is exactly that because these structs are only ever
@@ -152,6 +179,17 @@ public sealed unsafe class DrsApi
         /// <summary>Diagnostic only (<see cref="ProbeListProfiles"/>); not required by <see cref="TryCreate"/>.</summary>
         internal readonly delegate* unmanaged[Cdecl]<nint, uint, nint*, NvapiStatus> EnumProfiles =
             (delegate* unmanaged[Cdecl]<nint, uint, nint*, NvapiStatus>)NvapiNative.Resolve(IdEnumProfiles);
+
+        /// <summary>Profile inspection only; not required by <see cref="TryCreate"/>.</summary>
+        internal readonly delegate* unmanaged[Cdecl]<nint, nint, uint, uint*, NvdrsApplication*, NvapiStatus> EnumApplications =
+            (delegate* unmanaged[Cdecl]<nint, nint, uint, uint*, NvdrsApplication*, NvapiStatus>)NvapiNative.Resolve(IdEnumApplications);
+
+        /// <summary>Profile inspection only; not required by <see cref="TryCreate"/>.</summary>
+        internal readonly delegate* unmanaged[Cdecl]<nint, nint, uint, uint*, NvdrsSetting*, NvapiStatus> EnumSettings =
+            (delegate* unmanaged[Cdecl]<nint, nint, uint, uint*, NvdrsSetting*, NvapiStatus>)NvapiNative.Resolve(IdEnumSettings);
+
+        /// <summary>Everything <see cref="ReadProfileSnapshot"/> and <see cref="ScanProfiles"/> call.</summary>
+        internal bool CanInspect => EnumProfiles != null && EnumApplications != null && EnumSettings != null;
 
         /// <summary>Every interface the settings workflow needs is present.</summary>
         internal bool HasRequired =>
@@ -432,6 +470,169 @@ public sealed unsafe class DrsApi
         });
     }
 
+    /// <summary>The profile name Afterglow creates for an executable no driver profile knows.</summary>
+    public static string ProfileNameFor(string exeName) => ProfilePrefix + exeName.ToLowerInvariant();
+
+    /// <summary>
+    /// Read-only scan of the whole store: a full snapshot (applications and
+    /// settings) of every profile whose name passes <paramref name="nameFilter"/>.
+    /// It calls enumeration and GetProfileInfo only — never Set, Delete or Save —
+    /// and its session is destroyed unsaved, so it cannot change the store.
+    /// Anything but a clean END_ENUMERATION is returned as a failure: a scan that
+    /// stopped early must not read as "nothing found".
+    /// </summary>
+    public NvapiStatus ScanProfiles(Func<string, bool> nameFilter, out DrsScanResult result)
+    {
+        ArgumentNullException.ThrowIfNull(nameFilter);
+        result = new DrsScanResult(0, 0, []);
+        if (!_fn.CanInspect)
+        {
+            return NvapiStatus.FunctionNotFound;
+        }
+
+        int scanned = 0;
+        int unreadable = 0;
+        var profiles = new List<DrsProfileSnapshot>();
+        var status = WithSession((session) =>
+        {
+            for (uint i = 0; i < MaxEnumeration; i++)
+            {
+                nint profile = 0;
+                var rc = _fn.EnumProfiles(session, i, &profile);
+                if (rc == NvapiStatus.EndEnumeration)
+                {
+                    return NvapiStatus.Ok;
+                }
+
+                if (rc != NvapiStatus.Ok)
+                {
+                    return rc;
+                }
+
+                scanned++;
+                var info = default(NvdrsProfile);
+                info.Version = MakeVersion(sizeof(NvdrsProfile), 1);
+                if (_fn.GetProfileInfo(session, profile, &info) != NvapiStatus.Ok)
+                {
+                    unreadable++;   // reported, never silently skipped
+                    continue;
+                }
+
+                if (nameFilter(ReadFixedString(info.ProfileName, 2048)))
+                {
+                    profiles.Add(Snapshot(session, profile, &info));
+                }
+            }
+
+            return NvapiStatus.Error;   // more profiles than any real store holds: not a complete scan
+        });
+
+        result = new DrsScanResult(scanned, unreadable, profiles);
+        return status;
+    }
+
+    /// <summary>Read-only: a snapshot of the profile with exactly this name (ProfileNotFound when absent).</summary>
+    public NvapiStatus ReadProfile(string profileName, out DrsProfileSnapshot? snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(profileName);
+        DrsProfileSnapshot? found = null;
+        var status = _fn.CanInspect
+            ? WithSession((session) => ReadProfileSnapshot(session, profileName, out _, out found))
+            : NvapiStatus.FunctionNotFound;
+        snapshot = found;
+        return status;
+    }
+
+    /// <summary>
+    /// Read-only: the profile FindApplicationByName resolves <paramref name="exeName"/>
+    /// to, and the application name exactly as the store holds it.
+    /// </summary>
+    public NvapiStatus ReadApplicationProfile(string exeName, out DrsProfileSnapshot? snapshot, out string storedAppName)
+    {
+        ArgumentNullException.ThrowIfNull(exeName);
+        DrsProfileSnapshot? found = null;
+        string appName = string.Empty;
+        var status = !_fn.CanInspect ? NvapiStatus.FunctionNotFound : WithSession((session) =>
+        {
+            var rc = FindApplication(session, exeName, out nint profile, out appName);
+            if (rc != NvapiStatus.Ok)
+            {
+                return rc;
+            }
+
+            var info = default(NvdrsProfile);
+            info.Version = MakeVersion(sizeof(NvdrsProfile), 1);
+            rc = _fn.GetProfileInfo(session, profile, &info);
+            if (rc != NvapiStatus.Ok)
+            {
+                return rc;
+            }
+
+            found = Snapshot(session, profile, &info);
+            return NvapiStatus.Ok;
+        });
+
+        snapshot = found;
+        storedAppName = appName;
+        return status;
+    }
+
+    /// <summary>
+    /// Deletes each named profile that — re-read inside this deleting session, so
+    /// nothing can change between the check and the delete — still satisfies
+    /// <paramref name="confirm"/>, then saves once. Predefined profiles are refused
+    /// whatever <paramref name="confirm"/> says. If any delete fails, nothing is
+    /// saved (DRS edits live in the session until SaveSettings; the session is
+    /// destroyed unsaved). On any failure — including a refused save —
+    /// <see cref="DrsDeleteResult.Deleted"/> is empty; callers re-read the store
+    /// to report what it actually holds.
+    /// </summary>
+    public NvapiStatus DeleteProfiles(
+        IEnumerable<string> profileNames, Func<DrsProfileSnapshot, bool> confirm, out DrsDeleteResult result)
+    {
+        ArgumentNullException.ThrowIfNull(profileNames);
+        ArgumentNullException.ThrowIfNull(confirm);
+        var deleted = new List<string>();
+        var refused = new List<string>();
+        var notFound = new List<string>();
+        var status = !_fn.CanInspect ? NvapiStatus.FunctionNotFound : WithSession((session) =>
+        {
+            foreach (string name in profileNames.Distinct(StringComparer.Ordinal))
+            {
+                var rc = ReadProfileSnapshot(session, name, out nint handle, out var snapshot);
+                if (rc == NvapiStatus.ProfileNotFound)
+                {
+                    notFound.Add(name);
+                    continue;
+                }
+
+                if (rc != NvapiStatus.Ok)
+                {
+                    return rc;
+                }
+
+                if (snapshot!.IsPredefined || !confirm(snapshot))
+                {
+                    refused.Add(name);
+                    continue;
+                }
+
+                rc = _fn.DeleteProfile(session, handle);
+                if (rc != NvapiStatus.Ok)
+                {
+                    return rc;
+                }
+
+                deleted.Add(snapshot.Name);
+            }
+
+            return deleted.Count > 0 ? _fn.SaveSettings(session) : NvapiStatus.Ok;
+        });
+
+        result = new DrsDeleteResult(status == NvapiStatus.Ok ? deleted : [], refused, notFound);
+        return status;
+    }
+
     private NvapiStatus WithSession(Func<nint, NvapiStatus> body)
     {
         nint session = 0;
@@ -453,7 +654,11 @@ public sealed unsafe class DrsApi
     }
 
     /// <summary>FindApplicationByName for the lower-cased exe (V4 application struct, contents discarded).</summary>
-    private NvapiStatus FindApplication(nint session, string exeName, out nint profile)
+    private NvapiStatus FindApplication(nint session, string exeName, out nint profile) =>
+        FindApplication(session, exeName, out profile, out _);
+
+    /// <summary>FindApplicationByName for the lower-cased exe, plus the app name as stored.</summary>
+    private NvapiStatus FindApplication(nint session, string exeName, out nint profile, out string storedAppName)
     {
         var app = default(NvdrsApplication);
         app.Version = MakeVersion(sizeof(NvdrsApplication), 4);
@@ -465,7 +670,80 @@ public sealed unsafe class DrsApi
         }
 
         profile = found;
+        storedAppName = rc == NvapiStatus.Ok ? ReadFixedString(app.AppName, 2048) : string.Empty;
         return rc;
+    }
+
+    /// <summary>FindProfileByName for an exact name, then a full snapshot of what it found.</summary>
+    private NvapiStatus ReadProfileSnapshot(nint session, string profileName, out nint handle, out DrsProfileSnapshot? snapshot)
+    {
+        snapshot = null;
+        nint found = 0;
+        NvapiStatus rc;
+        fixed (char* name = profileName)
+        {
+            rc = _fn.FindProfileByName(session, name, &found);
+        }
+
+        handle = found;
+        if (rc != NvapiStatus.Ok)
+        {
+            return rc;
+        }
+
+        var info = default(NvdrsProfile);
+        info.Version = MakeVersion(sizeof(NvdrsProfile), 1);
+        rc = _fn.GetProfileInfo(session, found, &info);
+        if (rc != NvapiStatus.Ok)
+        {
+            return rc;
+        }
+
+        snapshot = Snapshot(session, found, &info);
+        return NvapiStatus.Ok;
+    }
+
+    /// <summary>
+    /// A profile's applications and settings, read one entry per call. It asks
+    /// for one entry past the declared count, so a driver returning more than
+    /// numOfApps / numOfSettings shows as a count mismatch; any failure other
+    /// than END_ENUMERATION leaves a short list, which the signature checks refuse
+    /// to judge. Read-only.
+    /// </summary>
+    private DrsProfileSnapshot Snapshot(nint session, nint profile, NvdrsProfile* info)
+    {
+        var apps = new List<DrsAppSnapshot>();
+        for (uint i = 0; i <= info->NumOfApps && i < MaxEnumeration; i++)
+        {
+            var app = default(NvdrsApplication);
+            app.Version = MakeVersion(sizeof(NvdrsApplication), 4);
+            uint count = 1;
+            if (_fn.EnumApplications(session, profile, i, &count, &app) != NvapiStatus.Ok || count == 0)
+            {
+                break;
+            }
+
+            apps.Add(new DrsAppSnapshot(ReadFixedString(app.AppName, 2048), app.IsPredefined != 0));
+        }
+
+        var settings = new List<DrsSettingSnapshot>();
+        for (uint i = 0; i <= info->NumOfSettings && i < MaxEnumeration; i++)
+        {
+            var setting = default(NvdrsSetting);
+            setting.Version = MakeVersion(sizeof(NvdrsSetting), 1);
+            uint count = 1;
+            if (_fn.EnumSettings(session, profile, i, &count, &setting) != NvapiStatus.Ok || count == 0)
+            {
+                break;
+            }
+
+            settings.Add(new DrsSettingSnapshot(
+                setting.SettingId, setting.SettingType, setting.CurrentValue, setting.IsCurrentPredefined != 0));
+        }
+
+        return new DrsProfileSnapshot(
+            ReadFixedString(info->ProfileName, 2048), info->IsPredefined != 0, apps, settings,
+            (int)Math.Min(info->NumOfApps, int.MaxValue), (int)Math.Min(info->NumOfSettings, int.MaxValue));
     }
 
     private NvapiStatus FindOrCreateProfile(nint session, string exeName, out nint profile, out bool created)
@@ -478,7 +756,7 @@ public sealed unsafe class DrsApi
         }
 
         // No driver profile knows this exe: create our own and attach the app.
-        string profileName = ProfilePrefix + exeName.ToLowerInvariant();
+        string profileName = ProfileNameFor(exeName);
         var newProfile = default(NvdrsProfile);
         newProfile.Version = MakeVersion(sizeof(NvdrsProfile), 1);
         WriteFixedString(newProfile.ProfileName, profileName);
