@@ -27,7 +27,11 @@ if ($LASTEXITCODE -ne 0) { exit 1 }
 Get-ChildItem $out -Filter "*.pdb" | Remove-Item
 
 # Belt-and-suspenders: single-file publish has been seen to skip bundled native exes.
-Copy-Item (Join-Path $root "ThirdParty\PresentMon\*") (Join-Path $out "ThirdParty\PresentMon\") -Force
+# A wildcard Copy-Item never creates its destination, so make sure it exists —
+# otherwise the repair fails in exactly the case it exists for (F-69).
+$presentMonOut = Join-Path $out "ThirdParty\PresentMon"
+New-Item -ItemType Directory -Force $presentMonOut | Out-Null
+Copy-Item (Join-Path $root "ThirdParty\PresentMon\*") $presentMonOut -Force
 if (-not (Test-Path (Join-Path $out "ThirdParty\PresentMon\PresentMon-2.5.1-x64.exe"))) {
     Write-Error "PresentMon missing from publish output"
     exit 1
