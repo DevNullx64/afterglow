@@ -65,4 +65,32 @@ public static class LogonTaskDefinition
             </Task>
             """;
     }
+
+    /// <summary>
+    /// The executable a task definition launches (its first Exec action's
+    /// Command), quotes removed and environment variables expanded the way Task
+    /// Scheduler expands them. Null when the XML is not a task definition or has
+    /// no Exec action — callers must then not claim anything about the location.
+    /// </summary>
+    public static string? ParseCommand(string taskXml)
+    {
+        try
+        {
+            // `schtasks /XML` prints a UTF-16 declaration on text it has already
+            // decoded; parsing from a string ignores the declared encoding.
+            var doc = System.Xml.Linq.XDocument.Parse(taskXml);
+            System.Xml.Linq.XNamespace ns = "http://schemas.microsoft.com/windows/2004/02/mit/task";
+            string? command = doc.Root?.Element(ns + "Actions")?.Element(ns + "Exec")?.Element(ns + "Command")?.Value;
+            if (string.IsNullOrWhiteSpace(command))
+            {
+                return null;
+            }
+
+            return Environment.ExpandEnvironmentVariables(command.Trim().Trim('"'));
+        }
+        catch (System.Xml.XmlException)
+        {
+            return null;
+        }
+    }
 }

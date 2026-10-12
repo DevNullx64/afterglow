@@ -28,6 +28,23 @@ public static class StartupTaskService
     public static bool IsEnabled() => RunSchtasks($"/Query /TN \"{TaskName}\"") == 0;
 
     /// <summary>
+    /// The executable the registered logon task actually launches, or null when
+    /// there is no task (or its definition can't be read). This — not the exe
+    /// that happens to be running — is what the elevated-autostart location
+    /// check must judge: a dev build or a second copy elsewhere says nothing
+    /// about the binary that will start with admin rights at logon.
+    /// </summary>
+    public static string? RegisteredExecutable()
+    {
+        if (RunSchtasks($"/Query /TN \"{TaskName}\" /XML", out string xml) != 0)
+        {
+            return null;
+        }
+
+        return Core.Security.LogonTaskDefinition.ParseCommand(xml);
+    }
+
+    /// <summary>
     /// Refuses unless the exe lives somewhere only administrators can change.
     /// The task starts Afterglow elevated with no consent prompt, so whatever
     /// can replace the exe inherits that at every logon — and the portable build
@@ -106,8 +123,11 @@ public static class StartupTaskService
 
     public static bool Disable() => RunSchtasks($"/Delete /TN \"{TaskName}\" /F") == 0;
 
-    private static int RunSchtasks(string arguments)
+    private static int RunSchtasks(string arguments) => RunSchtasks(arguments, out _);
+
+    private static int RunSchtasks(string arguments, out string output)
     {
+        output = string.Empty;
         try
         {
             // Full path: the elevated app must not run whatever "schtasks.exe"
@@ -117,18 +137,22 @@ public static class StartupTaskService
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                RedirectStandardOutput = true,
             });
             if (process is null)
             {
                 return -1;
             }
 
+            // Read before waiting: a full pipe would otherwise block the child.
+            var reading = process.StandardOutput.ReadToEndAsync();
             if (!process.WaitForExit(15_000))
             {
                 process.Kill();
                 return -1;
             }
 
+            output = reading.Wait(5_000) ? reading.Result : string.Empty;
             return process.ExitCode;
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)

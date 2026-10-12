@@ -29,7 +29,7 @@ namespace Afterglow.Core.Security;
 /// </summary>
 public static class DataRootProtection
 {
-    private static readonly object Gate = new();
+    private static readonly Lock Gate = new();
     private static bool _hardenAttempted;
 
     /// <summary>

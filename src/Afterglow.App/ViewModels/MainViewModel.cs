@@ -179,7 +179,7 @@ public partial class MainViewModel : ObservableObject
                 Application.Current?.Dispatcher.BeginInvoke(() =>
                     TrayAlert?.Invoke(
                         "Update available",
-                        $"Afterglow {result.LatestTag} is out (you're on v{current.ToString(3)}). " +
+                        $"Afterglow {result.LatestTag} is out (you're on v{Core.Services.UpdateChecker.DisplayVersion}). " +
                         "Settings → About has the Releases page."));
             }
         }

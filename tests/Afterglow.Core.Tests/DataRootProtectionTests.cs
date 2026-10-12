@@ -141,6 +141,41 @@ public class LogonTaskDefinitionTests
         Assert.Contains("<Arguments>--minimized</Arguments>", xml, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Parse_command_round_trips_what_build_xml_registers()
+    {
+        const string exe = @"C:\Program Files\Afterglow\Afterglow.exe";
+        Assert.Equal(exe, LogonTaskDefinition.ParseCommand(LogonTaskDefinition.BuildXml(exe, "S-1-5-21-1-2-3-1001")));
+    }
+
+    [Fact]
+    public void Parse_command_reads_what_schtasks_prints_and_strips_quotes()
+    {
+        // Shape of `schtasks /Query /TN Afterglow /XML` on Windows 11 (version 1.3, quoted path).
+        const string printed = """
+            <?xml version="1.0" encoding="UTF-16"?>
+            <Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+              <Actions Context="Author">
+                <Exec>
+                  <Command>"%ProgramFiles%\Afterglow\Afterglow.exe"</Command>
+                  <Arguments>--minimized</Arguments>
+                </Exec>
+              </Actions>
+            </Task>
+            """;
+
+        Assert.Equal(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Afterglow", "Afterglow.exe"),
+            LogonTaskDefinition.ParseCommand(printed));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("not xml")]
+    [InlineData("<Task xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\"><Actions/></Task>")]
+    public void Parse_command_returns_null_when_there_is_no_exec_action(string xml) =>
+        Assert.Null(LogonTaskDefinition.ParseCommand(xml));
+
     private static int CountOccurrences(string haystack, string needle)
     {
         int count = 0;

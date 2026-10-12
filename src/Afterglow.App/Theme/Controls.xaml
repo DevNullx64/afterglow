@@ -42,6 +42,18 @@
         <Setter Property="FontFamily" Value="{StaticResource MonoFont}" />
     </Style>
 
+    <!-- Inline warning that takes no room while it has nothing to say. -->
+    <Style x:Key="WarnNote" TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="Foreground" Value="{StaticResource Warn}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Style.Triggers>
+            <Trigger Property="Text" Value="">
+                <Setter Property="Visibility" Value="Collapsed" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- Card -->
     <Style x:Key="Card" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource Bg2}" />

@@ -40,28 +40,28 @@ public partial class SettingsViewModel : ObservableObject, ILivePage
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PollingLabel))]
-    private double _pollingIntervalMs;
+    public partial double PollingIntervalMs { get; set; }
 
-    [ObservableProperty] private bool _csvLoggingEnabled;
-    [ObservableProperty] private string _csvStatusText = string.Empty;
+    [ObservableProperty] public partial bool CsvLoggingEnabled { get; set; }
+    [ObservableProperty] public partial string CsvStatusText { get; set; } = string.Empty;
 
-    [ObservableProperty] private bool _closeToTray;
-    [ObservableProperty] private bool _startMinimizedToTray;
-    [ObservableProperty] private bool _resetOnDriverCrash;
-    [ObservableProperty] private bool _updateCheckEnabled;
-    [ObservableProperty] private string _updateStatusText = string.Empty;
+    [ObservableProperty] public partial bool CloseToTray { get; set; }
+    [ObservableProperty] public partial bool StartMinimizedToTray { get; set; }
+    [ObservableProperty] public partial bool ResetOnDriverCrash { get; set; }
+    [ObservableProperty] public partial bool UpdateCheckEnabled { get; set; }
+    [ObservableProperty] public partial string UpdateStatusText { get; set; } = string.Empty;
 
-    [ObservableProperty] private bool _startWithWindows;
-    [ObservableProperty] private string _startWithWindowsNote = string.Empty;
+    [ObservableProperty] public partial bool StartWithWindows { get; set; }
+    [ObservableProperty] public partial string StartWithWindowsNote { get; set; } = string.Empty;
 
     public System.Collections.ObjectModel.ObservableCollection<AutomationRule> AutomationRules { get; } = [];
 
-    [ObservableProperty] private int _newAutoMetricIndex;
-    [ObservableProperty] private string _newAutoThreshold = "94";
-    [ObservableProperty] private string _newAutoSeconds = "30";
-    [ObservableProperty] private int _newAutoActionIndex;
-    [ObservableProperty] private string _newAutoFanPct = "85";
-    [ObservableProperty] private string _newAutoProfile = string.Empty;
+    [ObservableProperty] public partial int NewAutoMetricIndex { get; set; }
+    [ObservableProperty] public partial string NewAutoThreshold { get; set; } = "94";
+    [ObservableProperty] public partial string NewAutoSeconds { get; set; } = "30";
+    [ObservableProperty] public partial int NewAutoActionIndex { get; set; }
+    [ObservableProperty] public partial string NewAutoFanPct { get; set; } = "85";
+    [ObservableProperty] public partial string NewAutoProfile { get; set; } = string.Empty;
 
     /// <summary>The fan-% box only applies to the fan action; the profile picker only to the profile action.</summary>
     public bool NewAutoActionIsFans => NewAutoActionIndex == 0;
@@ -123,26 +123,26 @@ public partial class SettingsViewModel : ObservableObject, ILivePage
         _services.UpdateSettings(s => s with { AutomationRules = rules });
     }
 
-    [ObservableProperty] private double _alertGpuTemp;
-    [ObservableProperty] private double _alertMemTemp;
+    [ObservableProperty] public partial double AlertGpuTemp { get; set; }
+    [ObservableProperty] public partial double AlertMemTemp { get; set; }
 
     /// <summary>"(none)" + saved profile names for the startup-apply picker.</summary>
     public System.Collections.ObjectModel.ObservableCollection<string> StartupProfileOptions { get; } = [];
 
-    [ObservableProperty] private string _selectedStartupProfile = "(none)";
+    [ObservableProperty] public partial string SelectedStartupProfile { get; set; } = "(none)";
 
-    [ObservableProperty] private string _startupProfileNote = string.Empty;
+    [ObservableProperty] public partial string StartupProfileNote { get; set; } = string.Empty;
 
     // Overlay
-    [ObservableProperty] private int _overlayCornerIndex;
-    [ObservableProperty] private double _overlayOpacity;
-    [ObservableProperty] private bool _overlayShowFps;
-    [ObservableProperty] private bool _overlayShowGraph;
-    [ObservableProperty] private bool _overlayShowTemp;
-    [ObservableProperty] private bool _overlayShowPower;
-    [ObservableProperty] private bool _overlayShowClock;
-    [ObservableProperty] private bool _overlayShowVram;
-    [ObservableProperty] private bool _overlayShowFan;
+    [ObservableProperty] public partial int OverlayCornerIndex { get; set; }
+    [ObservableProperty] public partial double OverlayOpacity { get; set; }
+    [ObservableProperty] public partial bool OverlayShowFps { get; set; }
+    [ObservableProperty] public partial bool OverlayShowGraph { get; set; }
+    [ObservableProperty] public partial bool OverlayShowTemp { get; set; }
+    [ObservableProperty] public partial bool OverlayShowPower { get; set; }
+    [ObservableProperty] public partial bool OverlayShowClock { get; set; }
+    [ObservableProperty] public partial bool OverlayShowVram { get; set; }
+    [ObservableProperty] public partial bool OverlayShowFan { get; set; }
 
     public string PollingLabel => $"{PollingIntervalMs:F0} ms";
 
@@ -326,8 +326,11 @@ public partial class SettingsViewModel : ObservableObject, ILivePage
             // A task registered before the location check existed (or from a copy
             // that has since moved) keeps running elevated at every logon. Say so:
             // the toggle only reports that a task exists, not that it is safe.
-            string? warning = exists && Environment.ProcessPath is { } exe &&
-                              Core.Security.TrustedInstallLocation.Check(exe) is { IsTrusted: false } untrusted
+            // Judge the exe the TASK launches — the running one may be a dev
+            // build or a second copy, which says nothing about the logon binary.
+            string? taskExe = exists ? Services.StartupTaskService.RegisteredExecutable() : null;
+            string? warning = taskExe is not null &&
+                              Core.Security.TrustedInstallLocation.Check(taskExe) is { IsTrusted: false } untrusted
                 ? $"This startup task runs Afterglow elevated with no prompt from a location that is not " +
                   $"administrator-only: {untrusted.Reason}. Anything able to replace the exe would inherit those " +
                   "rights at logon. Turn this off, or reinstall into Program Files with the setup .exe."

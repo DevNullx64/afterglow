@@ -45,8 +45,7 @@
                                FontSize="11.5" Foreground="{StaticResource TextFaint}" TextWrapping="Wrap" Margin="0,2,0,0" />
                     <ComboBox ItemsSource="{Binding StartupProfileOptions}" SelectedItem="{Binding SelectedStartupProfile}"
                               Margin="0,10,0,0" MaxWidth="340" HorizontalAlignment="Left" />
-                    <TextBlock Text="{Binding StartupProfileNote}" FontSize="11.5" Foreground="{StaticResource Warn}"
-                               TextWrapping="Wrap" Margin="0,8,0,0" />
+                    <TextBlock Text="{Binding StartupProfileNote}" Style="{StaticResource WarnNote}" Margin="0,8,0,0" />
                 </StackPanel>
             </Border>
 
@@ -60,8 +59,7 @@
                     <CheckBox Style="{StaticResource ToggleSwitch}"
                               Content="Start with Windows (elevated via Task Scheduler — no UAC prompt at logon)"
                               IsChecked="{Binding StartWithWindows}" Margin="0,10,0,0" />
-                    <TextBlock Text="{Binding StartWithWindowsNote}" FontSize="11.5" Foreground="{StaticResource Warn}"
-                               TextWrapping="Wrap" Margin="0,6,0,0" />
+                    <TextBlock Text="{Binding StartWithWindowsNote}" Style="{StaticResource WarnNote}" Margin="0,6,0,0" />
                     <CheckBox Style="{StaticResource ToggleSwitch}"
                               Content="Auto-reset tuning if a GPU driver crash (TDR) is detected"
                               IsChecked="{Binding ResetOnDriverCrash}" Margin="0,10,0,0" />
