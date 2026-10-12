@@ -204,6 +204,13 @@ Corrections welcome.)*
   clear it performs, and only ever removes a curve for a profile that recorded a reading of
   the table when it was saved. (Early releases claimed RTX 50 blocks these interfaces — that
   was a broken struct layout in pre-1.0 development, fixed in 1.2.)
+- **Per-game driver settings for exes the driver doesn't already know.** Versions up to 1.2.0-beta.4
+  sent every driver-profile name truncated to its first character, so this path never worked
+  (it left a profile literally named "A"; delete it with NVIDIA Profile Inspector if you have
+  one). Names now arrive intact — verified by reading the store back — but creating a profile
+  for an unknown exe has not yet been re-tested on hardware since the fix. If the driver
+  refuses, Afterglow says so and suggests adding the game once in NVIDIA Control Panel. Games
+  the driver already knows (thousands are predefined) don't need a new profile.
 - The **overlay** doesn't render over legacy exclusive-fullscreen (no injection by design);
   borderless/windowed/fullscreen-optimized — i.e., almost everything modern — works.
 - The **temperature-limit slider** isn't exposed on current Blackwell drivers through public
@@ -225,7 +232,8 @@ Corrections welcome.)*
 
 - **Installer:** grab `Afterglow-x.y.z-setup.exe` from
   [Releases](../../releases), run it (it can also register start-with-Windows).
-- **Portable:** unzip `Afterglow-x.y.z-portable.zip` anywhere and run `Afterglow.exe`.
+- **Portable:** unzip `Afterglow-x.y.z-portable.zip` anywhere (keep the folder together — the
+  app and `afterglow-cli.exe` share one runtime in it) and run `Afterglow.exe`.
 
 No .NET install is needed — builds are self-contained. Because releases are not (yet)
 code-signed, Windows SmartScreen may warn on first launch — "More info → Run anyway";
@@ -260,6 +268,13 @@ dotnet run --project src/Afterglow.App -- --demo   # full UI with synthetic data
 `--demo` runs the entire UI on a synthetic GPU — useful for UI work on machines without
 NVIDIA hardware. `--screenshot out.png --page tuning` renders any page off-screen to a PNG
 (that's how the screenshots in this README are produced).
+
+`--data-dir <folder>` (app and CLI) keeps every piece of state — settings, profiles, logs,
+flight recordings, V/F curves — under that folder instead of `%ProgramData%\Afterglow`, so a
+development build or a test run never touches the installed copy; `--no-elevate` keeps a run
+monitoring-only. `tools/measure-perf.ps1` and `tools/measure-startup.ps1` use both to measure
+CPU, memory, allocation rate and startup reproducibly — see
+[docs/performance.md](docs/performance.md).
 
 ## Safety model
 

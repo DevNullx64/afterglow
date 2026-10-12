@@ -246,7 +246,7 @@ public partial class ProfilesViewModel : ObservableObject
             return $" Driver settings applied and {note} (persist in the driver, active whenever the game runs).";
         }
 
-        // Before 1.2's interop rewrite every profile/app name reached the driver
+        // Up to 1.2.0-beta.4 every profile/app name reached the driver
         // truncated to its first character, so every create after the first
         // collided on a profile literally named "A" — which read as "drivers
         // reject creating profiles". With full names that collision is gone;
