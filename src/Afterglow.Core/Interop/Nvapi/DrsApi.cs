@@ -54,42 +54,16 @@ public sealed unsafe class DrsApi
 
     private const string ProfilePrefix = "Afterglow - ";
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus SessionOutDelegate(out nint session);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus SessionDelegate(nint session);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus FindProfileByNameDelegate(nint session, char* name, out nint profile);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus CreateProfileDelegate(nint session, ref NvdrsProfile profile, out nint handle);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus DeleteProfileDelegate(nint session, nint profile);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus CreateApplicationDelegate(nint session, nint profile, ref NvdrsApplication app);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus FindApplicationByNameDelegate(
-        nint session, char* appName, out nint profile, ref NvdrsApplication app);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus SetSettingDelegate(nint session, nint profile, ref NvdrsSetting setting);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus GetSettingDelegate(nint session, nint profile, uint settingId, ref NvdrsSetting setting);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus DeleteProfileSettingDelegate(nint session, nint profile, uint settingId);
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus GetProfileInfoDelegate(nint session, nint profile, ref NvdrsProfile info);
+    // Wire structs. NVAPI strings are NvAPI_UnicodeString (NvU16[2048], UTF-16),
+    // and `fixed char` is exactly that because these structs are only ever
+    // passed by pointer — nothing marshals them (the assembly also disables
+    // runtime marshalling). Under the classic marshaller the compiler-generated
+    // fixed-buffer type is CharSet.Ansi, which copied only the FIRST character,
+    // narrowed to one ANSI byte: every profile name read back as a single
+    // letter, and names written to the store were truncated the same way.
 
     [StructLayout(LayoutKind.Sequential, Pack = 8)]
-    private struct NvdrsProfile
+    internal struct NvdrsProfile
     {
         public uint Version;
         public fixed char ProfileName[2048];
@@ -100,7 +74,7 @@ public sealed unsafe class DrsApi
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 8)]
-    private struct NvdrsApplication   // NVDRS_APPLICATION_V4 — what current drivers expect for find/create
+    internal struct NvdrsApplication   // NVDRS_APPLICATION_V4 — what current drivers expect for find/create
     {
         public uint Version;
         public uint IsPredefined;
@@ -113,7 +87,7 @@ public sealed unsafe class DrsApi
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 8)]
-    private struct NvdrsSetting
+    internal struct NvdrsSetting
     {
         public uint Version;
         public fixed char SettingName[2048];
@@ -128,93 +102,99 @@ public sealed unsafe class DrsApi
         public fixed byte CurrentPad[4096];
     }
 
-    private readonly SessionOutDelegate _createSession;
-    private readonly SessionDelegate _destroySession;
-    private readonly SessionDelegate _loadSettings;
-    private readonly SessionDelegate _saveSettings;
-    private readonly FindProfileByNameDelegate _findProfileByName;
-    private readonly CreateProfileDelegate _createProfile;
-    private readonly DeleteProfileDelegate _deleteProfile;
-    private readonly CreateApplicationDelegate _createApplication;
-    private readonly FindApplicationByNameDelegate _findApplicationByName;
-    private readonly SetSettingDelegate _setSetting;
-    private readonly GetSettingDelegate _getSetting;
-    private readonly DeleteProfileSettingDelegate _deleteProfileSetting;
-    private readonly GetProfileInfoDelegate _getProfileInfo;
-
-    private DrsApi(
-        SessionOutDelegate createSession, SessionDelegate destroySession, SessionDelegate loadSettings,
-        SessionDelegate saveSettings, FindProfileByNameDelegate findProfileByName,
-        CreateProfileDelegate createProfile, DeleteProfileDelegate deleteProfile,
-        CreateApplicationDelegate createApplication, FindApplicationByNameDelegate findApplicationByName,
-        SetSettingDelegate setSetting, GetSettingDelegate getSetting,
-        DeleteProfileSettingDelegate deleteProfileSetting, GetProfileInfoDelegate getProfileInfo)
+    /// <summary>
+    /// The DRS interface table. Interface addresses are process-wide, so it is
+    /// resolved exactly once per process, on first use — which is always after
+    /// NvAPI_Initialize succeeded, because only <see cref="TryCreate"/> touches
+    /// it and only past that point.
+    /// </summary>
+    private sealed class Functions
     {
-        _createSession = createSession;
-        _destroySession = destroySession;
-        _loadSettings = loadSettings;
-        _saveSettings = saveSettings;
-        _findProfileByName = findProfileByName;
-        _createProfile = createProfile;
-        _deleteProfile = deleteProfile;
-        _createApplication = createApplication;
-        _findApplicationByName = findApplicationByName;
-        _setSetting = setSetting;
-        _getSetting = getSetting;
-        _deleteProfileSetting = deleteProfileSetting;
-        _getProfileInfo = getProfileInfo;
+        internal readonly delegate* unmanaged[Cdecl]<nint*, NvapiStatus> CreateSession =
+            (delegate* unmanaged[Cdecl]<nint*, NvapiStatus>)NvapiNative.Resolve(IdCreateSession);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, NvapiStatus> DestroySession =
+            (delegate* unmanaged[Cdecl]<nint, NvapiStatus>)NvapiNative.Resolve(IdDestroySession);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, NvapiStatus> LoadSettings =
+            (delegate* unmanaged[Cdecl]<nint, NvapiStatus>)NvapiNative.Resolve(IdLoadSettings);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, NvapiStatus> SaveSettings =
+            (delegate* unmanaged[Cdecl]<nint, NvapiStatus>)NvapiNative.Resolve(IdSaveSettings);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, char*, nint*, NvapiStatus> FindProfileByName =
+            (delegate* unmanaged[Cdecl]<nint, char*, nint*, NvapiStatus>)NvapiNative.Resolve(IdFindProfileByName);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, NvdrsProfile*, nint*, NvapiStatus> CreateProfile =
+            (delegate* unmanaged[Cdecl]<nint, NvdrsProfile*, nint*, NvapiStatus>)NvapiNative.Resolve(IdCreateProfile);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, nint, NvapiStatus> DeleteProfile =
+            (delegate* unmanaged[Cdecl]<nint, nint, NvapiStatus>)NvapiNative.Resolve(IdDeleteProfile);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, nint, NvdrsApplication*, NvapiStatus> CreateApplication =
+            (delegate* unmanaged[Cdecl]<nint, nint, NvdrsApplication*, NvapiStatus>)NvapiNative.Resolve(IdCreateApplication);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, char*, nint*, NvdrsApplication*, NvapiStatus> FindApplicationByName =
+            (delegate* unmanaged[Cdecl]<nint, char*, nint*, NvdrsApplication*, NvapiStatus>)NvapiNative.Resolve(IdFindApplicationByName);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, nint, NvdrsSetting*, NvapiStatus> SetSetting =
+            (delegate* unmanaged[Cdecl]<nint, nint, NvdrsSetting*, NvapiStatus>)NvapiNative.Resolve(IdSetSetting);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, nint, uint, NvdrsSetting*, NvapiStatus> GetSetting =
+            (delegate* unmanaged[Cdecl]<nint, nint, uint, NvdrsSetting*, NvapiStatus>)NvapiNative.Resolve(IdGetSetting);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, nint, uint, NvapiStatus> DeleteProfileSetting =
+            (delegate* unmanaged[Cdecl]<nint, nint, uint, NvapiStatus>)NvapiNative.Resolve(IdDeleteProfileSetting);
+
+        internal readonly delegate* unmanaged[Cdecl]<nint, nint, NvdrsProfile*, NvapiStatus> GetProfileInfo =
+            (delegate* unmanaged[Cdecl]<nint, nint, NvdrsProfile*, NvapiStatus>)NvapiNative.Resolve(IdGetProfileInfo);
+
+        /// <summary>Diagnostic only (<see cref="ProbeListProfiles"/>); not required by <see cref="TryCreate"/>.</summary>
+        internal readonly delegate* unmanaged[Cdecl]<nint, uint, nint*, NvapiStatus> EnumProfiles =
+            (delegate* unmanaged[Cdecl]<nint, uint, nint*, NvapiStatus>)NvapiNative.Resolve(IdEnumProfiles);
+
+        /// <summary>Every interface the settings workflow needs is present.</summary>
+        internal bool HasRequired =>
+            CreateSession != null && DestroySession != null && LoadSettings != null && SaveSettings != null &&
+            FindProfileByName != null && CreateProfile != null && DeleteProfile != null &&
+            CreateApplication != null && FindApplicationByName != null && SetSetting != null &&
+            GetSetting != null && DeleteProfileSetting != null && GetProfileInfo != null;
+    }
+
+    private static readonly Lazy<Functions> ResolvedFunctions = new(() => new Functions());
+
+    private readonly Functions _fn;
+
+    private DrsApi(Functions functions)
+    {
+        _fn = functions;
     }
 
     public static DrsApi? TryCreate(out NvapiStatus status)
     {
-        // Layout self-checks: a marshaling regression must fail loudly here,
-        // never as silent driver-store corruption.
+        // Layout self-checks: these are the exact wire sizes the driver
+        // validates through the version word; a layout regression must fail
+        // loudly here, never as silent driver-store corruption.
         if (sizeof(NvdrsProfile) != 4116 || sizeof(NvdrsApplication) != 20492 || sizeof(NvdrsSetting) != 12320)
         {
             status = NvapiStatus.IncompatibleStructVersion;
             return null;
         }
 
-        var initialize = NvapiNative.GetDelegate<NvapiNative.InitializeDelegate>(NvapiIds.Initialize);
-        if (initialize is null)
-        {
-            status = NvapiStatus.LibraryNotFound;
-            return null;
-        }
-
-        status = initialize();
+        status = NvapiNative.EnsureInitialized();
         if (status != NvapiStatus.Ok)
         {
             return null;
         }
 
-        var createSession = NvapiNative.GetDelegate<SessionOutDelegate>(IdCreateSession);
-        var destroySession = NvapiNative.GetDelegate<SessionDelegate>(IdDestroySession);
-        var loadSettings = NvapiNative.GetDelegate<SessionDelegate>(IdLoadSettings);
-        var saveSettings = NvapiNative.GetDelegate<SessionDelegate>(IdSaveSettings);
-        var findProfileByName = NvapiNative.GetDelegate<FindProfileByNameDelegate>(IdFindProfileByName);
-        var createProfile = NvapiNative.GetDelegate<CreateProfileDelegate>(IdCreateProfile);
-        var deleteProfile = NvapiNative.GetDelegate<DeleteProfileDelegate>(IdDeleteProfile);
-        var createApplication = NvapiNative.GetDelegate<CreateApplicationDelegate>(IdCreateApplication);
-        var findApplicationByName = NvapiNative.GetDelegate<FindApplicationByNameDelegate>(IdFindApplicationByName);
-        var setSetting = NvapiNative.GetDelegate<SetSettingDelegate>(IdSetSetting);
-        var getSetting = NvapiNative.GetDelegate<GetSettingDelegate>(IdGetSetting);
-        var deleteProfileSetting = NvapiNative.GetDelegate<DeleteProfileSettingDelegate>(IdDeleteProfileSetting);
-        var getProfileInfo = NvapiNative.GetDelegate<GetProfileInfoDelegate>(IdGetProfileInfo);
-
-        if (createSession is null || destroySession is null || loadSettings is null || saveSettings is null ||
-            findProfileByName is null || createProfile is null || deleteProfile is null ||
-            createApplication is null || findApplicationByName is null || setSetting is null ||
-            getSetting is null || deleteProfileSetting is null || getProfileInfo is null)
+        var functions = ResolvedFunctions.Value;
+        if (!functions.HasRequired)
         {
             status = NvapiStatus.FunctionNotFound;
             return null;
         }
 
-        return new DrsApi(
-            createSession, destroySession, loadSettings, saveSettings, findProfileByName, createProfile,
-            deleteProfile, createApplication, findApplicationByName, setSetting, getSetting,
-            deleteProfileSetting, getProfileInfo);
+        return new DrsApi(functions);
     }
 
     /// <summary>
@@ -259,7 +239,7 @@ public sealed unsafe class DrsApi
                 return rc;
             }
 
-            return _saveSettings(session);
+            return _fn.SaveSettings(session);
         });
 
         if (status != NvapiStatus.Ok)
@@ -291,15 +271,7 @@ public sealed unsafe class DrsApi
 
         var status = WithSession((session) =>
         {
-            var app = default(NvdrsApplication);
-            app.Version = MakeVersion(sizeof(NvdrsApplication), 4);
-            nint profile;
-            NvapiStatus rc;
-            fixed (char* name = exeName.ToLowerInvariant())
-            {
-                rc = _findApplicationByName(session, name, out profile, ref app);
-            }
-
+            var rc = FindApplication(session, exeName, out nint profile);
             if (rc != NvapiStatus.Ok)
             {
                 return rc;   // ExecutableNotFound and friends -> no profile
@@ -341,16 +313,7 @@ public sealed unsafe class DrsApi
     {
         return WithSession((session) =>
         {
-            var app = default(NvdrsApplication);
-            app.Version = MakeVersion(sizeof(NvdrsApplication), 4);
-            nint profile;
-            NvapiStatus rc;
-            fixed (char* name = exeName.ToLowerInvariant())
-            {
-                rc = _findApplicationByName(session, name, out profile, ref app);
-            }
-
-            if (rc != NvapiStatus.Ok)
+            if (FindApplication(session, exeName, out nint profile) != NvapiStatus.Ok)
             {
                 return NvapiStatus.Ok;   // nothing to clear
             }
@@ -358,28 +321,24 @@ public sealed unsafe class DrsApi
             string profileName = GetProfileNameFromApp(session, profile);
             if (profileName.StartsWith(ProfilePrefix, StringComparison.Ordinal))
             {
-                _ = _deleteProfile(session, profile);
+                _ = _fn.DeleteProfile(session, profile);
             }
             else
             {
-                _ = _deleteProfileSetting(session, profile, FrameRateLimiterId);
-                _ = _deleteProfileSetting(session, profile, VsyncModeId);
-                _ = _deleteProfileSetting(session, profile, PreRenderedFramesId);
+                _ = _fn.DeleteProfileSetting(session, profile, FrameRateLimiterId);
+                _ = _fn.DeleteProfileSetting(session, profile, VsyncModeId);
+                _ = _fn.DeleteProfileSetting(session, profile, PreRenderedFramesId);
             }
 
-            return _saveSettings(session);
+            return _fn.SaveSettings(session);
         });
     }
-
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate NvapiStatus EnumProfilesDelegate(nint session, uint index, out nint profile);
 
     /// <summary>Diagnostic: every profile name in the store that contains the filter.</summary>
     public IReadOnlyList<string> ProbeListProfiles(string contains)
     {
         var names = new List<string>();
-        var enumProfiles = NvapiNative.GetDelegate<EnumProfilesDelegate>(IdEnumProfiles);
-        if (enumProfiles is null)
+        if (_fn.EnumProfiles == null)
         {
             return names;
         }
@@ -391,7 +350,8 @@ public sealed unsafe class DrsApi
         {
             for (uint i = 0; i < 20000; i++)
             {
-                if (enumProfiles(session, i, out nint profile) != NvapiStatus.Ok)
+                nint profile = 0;
+                if (_fn.EnumProfiles(session, i, &profile) != NvapiStatus.Ok)
                 {
                     break;
                 }
@@ -399,7 +359,7 @@ public sealed unsafe class DrsApi
                 total++;
                 var info = default(NvdrsProfile);
                 info.Version = MakeVersion(sizeof(NvdrsProfile), 1);
-                lastInfoStatus = _getProfileInfo(session, profile, ref info);
+                lastInfoStatus = _fn.GetProfileInfo(session, profile, &info);
                 if (lastInfoStatus != NvapiStatus.Ok)
                 {
                     continue;
@@ -433,8 +393,9 @@ public sealed unsafe class DrsApi
             newProfile.GpuSupport = 0x1;   // Geforce
             WriteFixedString(newProfile.ProfileName, profileName);
             writtenBack = ReadFixedString(newProfile.ProfileName, 2048);
-            createRc = _createProfile(session, ref newProfile, out _);
-            saveRc = createRc == NvapiStatus.Ok ? _saveSettings(session) : NvapiStatus.Ok;
+            nint created = 0;
+            createRc = _fn.CreateProfile(session, &newProfile, &created);
+            saveRc = createRc == NvapiStatus.Ok ? _fn.SaveSettings(session) : NvapiStatus.Ok;
             return NvapiStatus.Ok;
         });
 
@@ -442,16 +403,17 @@ public sealed unsafe class DrsApi
 
         var deleteRc = WithSession((session) =>
         {
+            nint handle = 0;
             fixed (char* name = profileName)
             {
-                if (_findProfileByName(session, name, out nint handle) != NvapiStatus.Ok)
+                if (_fn.FindProfileByName(session, name, &handle) != NvapiStatus.Ok)
                 {
                     return NvapiStatus.ProfileNotFound;
                 }
-
-                var rc = _deleteProfile(session, handle);
-                return rc != NvapiStatus.Ok ? rc : _saveSettings(session);
             }
+
+            var rc = _fn.DeleteProfile(session, handle);
+            return rc != NvapiStatus.Ok ? rc : _fn.SaveSettings(session);
         });
 
         return $"nameInStruct='{writtenBack}' create={createRc} save={saveRc} refind={findRc} delete+save={deleteRc}";
@@ -462,16 +424,18 @@ public sealed unsafe class DrsApi
     {
         return WithSession((session) =>
         {
+            nint handle = 0;
             fixed (char* name = profileName)
             {
-                return _findProfileByName(session, name, out _);
+                return _fn.FindProfileByName(session, name, &handle);
             }
         });
     }
 
     private NvapiStatus WithSession(Func<nint, NvapiStatus> body)
     {
-        var rc = _createSession(out nint session);
+        nint session = 0;
+        var rc = _fn.CreateSession(&session);
         if (rc != NvapiStatus.Ok)
         {
             return rc;
@@ -479,26 +443,35 @@ public sealed unsafe class DrsApi
 
         try
         {
-            rc = _loadSettings(session);
+            rc = _fn.LoadSettings(session);
             return rc != NvapiStatus.Ok ? rc : body(session);
         }
         finally
         {
-            _ = _destroySession(session);
+            _ = _fn.DestroySession(session);
         }
+    }
+
+    /// <summary>FindApplicationByName for the lower-cased exe (V4 application struct, contents discarded).</summary>
+    private NvapiStatus FindApplication(nint session, string exeName, out nint profile)
+    {
+        var app = default(NvdrsApplication);
+        app.Version = MakeVersion(sizeof(NvdrsApplication), 4);
+        nint found = 0;
+        NvapiStatus rc;
+        fixed (char* name = exeName.ToLowerInvariant())
+        {
+            rc = _fn.FindApplicationByName(session, name, &found, &app);
+        }
+
+        profile = found;
+        return rc;
     }
 
     private NvapiStatus FindOrCreateProfile(nint session, string exeName, out nint profile, out bool created)
     {
         created = false;
-        var app = default(NvdrsApplication);
-        app.Version = MakeVersion(sizeof(NvdrsApplication), 4);
-        NvapiStatus rc;
-        fixed (char* name = exeName.ToLowerInvariant())
-        {
-            rc = _findApplicationByName(session, name, out profile, ref app);
-        }
-
+        var rc = FindApplication(session, exeName, out profile);
         if (rc == NvapiStatus.Ok)
         {
             return NvapiStatus.Ok;
@@ -509,23 +482,26 @@ public sealed unsafe class DrsApi
         var newProfile = default(NvdrsProfile);
         newProfile.Version = MakeVersion(sizeof(NvdrsProfile), 1);
         WriteFixedString(newProfile.ProfileName, profileName);
-        rc = _createProfile(session, ref newProfile, out profile);
+        nint handle = 0;
+        rc = _fn.CreateProfile(session, &newProfile, &handle);
         if (rc != NvapiStatus.Ok)
         {
             // Name collision from a previous run: reuse it.
             fixed (char* name = profileName)
             {
-                if (_findProfileByName(session, name, out profile) != NvapiStatus.Ok)
+                if (_fn.FindProfileByName(session, name, &handle) != NvapiStatus.Ok)
                 {
+                    profile = handle;
                     return rc;
                 }
             }
         }
 
+        profile = handle;
         var newApp = default(NvdrsApplication);
         newApp.Version = MakeVersion(sizeof(NvdrsApplication), 4);
         WriteFixedString(newApp.AppName, exeName.ToLowerInvariant());
-        rc = _createApplication(session, profile, ref newApp);
+        rc = _fn.CreateApplication(session, profile, &newApp);
         created = true;
         return rc;
     }
@@ -535,7 +511,7 @@ public sealed unsafe class DrsApi
         if (!enabled)
         {
             // Not-found is fine — the knob simply wasn't set before.
-            _ = _deleteProfileSetting(session, profile, settingId);
+            _ = _fn.DeleteProfileSetting(session, profile, settingId);
             return NvapiStatus.Ok;
         }
 
@@ -544,14 +520,14 @@ public sealed unsafe class DrsApi
         setting.SettingId = settingId;
         setting.SettingType = 0;   // DWORD
         setting.CurrentValue = value;
-        return _setSetting(session, profile, ref setting);
+        return _fn.SetSetting(session, profile, &setting);
     }
 
     private bool TryGetDword(nint session, nint profile, uint settingId, out uint value)
     {
         var setting = default(NvdrsSetting);
         setting.Version = MakeVersion(sizeof(NvdrsSetting), 1);
-        if (_getSetting(session, profile, settingId, ref setting) == NvapiStatus.Ok)
+        if (_fn.GetSetting(session, profile, settingId, &setting) == NvapiStatus.Ok)
         {
             value = setting.CurrentValue;
             return true;
@@ -565,7 +541,7 @@ public sealed unsafe class DrsApi
     {
         var info = default(NvdrsProfile);
         info.Version = MakeVersion(sizeof(NvdrsProfile), 1);
-        if (_getProfileInfo(session, profile, ref info) != NvapiStatus.Ok)
+        if (_fn.GetProfileInfo(session, profile, &info) != NvapiStatus.Ok)
         {
             return string.Empty;
         }

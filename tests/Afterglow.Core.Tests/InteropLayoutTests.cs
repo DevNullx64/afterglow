@@ -1,19 +1,21 @@
 using System.Reflection;
-using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using Afterglow.Core.Hardware;
 using Afterglow.Core.Interop.Nvapi;
 using Afterglow.Core.Interop.Nvml;
+using Afterglow.Core.Stress;
 
 namespace Afterglow.Core.Tests;
 
 /// <summary>
 /// Pins the exact wire layout (size and every field offset) of every struct
 /// Afterglow hands to nvml.dll, nvapi64.dll, and gdi32.dll. The numbers are
-/// hard-coded on purpose: they were measured from the shipped layouts, and a
-/// struct that drifts by one byte would send garbage to GPU firmware on a SET
-/// call. Cross-checks against independently known sizes: clock-boost mask /
-/// VFP curve / clock table 6188 / 7208 / 9248 bytes, DRS PROFILE v1 4116,
-/// APPLICATION v4 20492, SETTING v1 12320.
+/// hard-coded on purpose: they were measured from the marshalled layouts the
+/// app shipped with (Marshal.SizeOf / Marshal.OffsetOf, before the structs
+/// became blittable), and a struct that drifts by one byte would send garbage
+/// to GPU firmware on a SET call. Cross-checks against independently known
+/// sizes: clock-boost mask / VFP curve / clock table 6188 / 7208 / 9248 bytes,
+/// DRS PROFILE v1 4116, APPLICATION v4 20492, SETTING v1 12320.
 /// </summary>
 public class InteropLayoutTests
 {
@@ -182,21 +184,184 @@ public class InteropLayoutTests
         Assert.Equal(8u | (1u << 24), NvmlMarginTemperature.Version1);
     }
 
+    [Fact]
+    public void Core_assembly_never_runs_the_runtime_marshaller()
+    {
+        // With runtime marshalling disabled, every struct crosses as its exact
+        // managed bytes and `char` is UTF-16 — the premise of the measurement below.
+        Assert.NotNull(typeof(GpuManager).Assembly.GetCustomAttribute<DisableRuntimeMarshallingAttribute>());
+    }
+
+    [Fact]
+    public unsafe void Drs_strings_are_utf16_on_the_wire()
+    {
+        // NvAPI_UnicodeString is NvU16[2048]. The classic marshaller used to send
+        // only the first character of a `fixed char` buffer, as one ANSI byte.
+        var profile = default(DrsApi.NvdrsProfile);
+        "Base Profile".AsSpan().CopyTo(new Span<char>(profile.ProfileName, 2048));
+        var wire = new ReadOnlySpan<byte>(&profile, sizeof(DrsApi.NvdrsProfile));
+
+        Assert.Equal(4116, wire.Length);
+        Assert.Equal("Base Profile\0", System.Text.Encoding.Unicode.GetString(wire.Slice(4, 26)));
+    }
+
     // --- Measurement -----------------------------------------------------------
 
     /// <summary>[InlineArray] storage types: measured through the struct that embeds them.</summary>
-    private static bool IsArrayStorage(Type type) =>
-        type.GetCustomAttribute<System.Runtime.CompilerServices.InlineArrayAttribute>() is not null;
+    private static bool IsArrayStorage(Type type) => type.GetCustomAttribute<InlineArrayAttribute>() is not null;
 
     /// <summary>
-    /// Measures the layout the classic interop marshaller sends: Marshal.SizeOf /
-    /// Marshal.OffsetOf over every instance field.
+    /// Measures the layout that actually crosses the boundary. Every interop
+    /// struct is unmanaged and passed by pointer with runtime marshalling
+    /// disabled, so the wire layout IS the managed layout: Unsafe.SizeOf plus
+    /// Unsafe.ByteOffset from the struct's first byte to each field. Every
+    /// declared instance field must be probed, so a new field cannot go unmeasured.
     /// </summary>
     private static (int Size, Dictionary<string, int> Offsets) Measure(string typeName)
     {
-        var type = typeof(GpuManager).Assembly.GetType(typeName, throwOnError: true)!;
-        var offsets = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .ToDictionary(f => f.Name, f => (int)Marshal.OffsetOf(type, f.Name), StringComparer.Ordinal);
-        return (Marshal.SizeOf(type), offsets);
+        var (size, offsets) = Probe(typeName);
+        var declared = typeof(GpuManager).Assembly.GetType(typeName, throwOnError: true)!
+            .GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            .Select(f => f.Name)
+            .Order(StringComparer.Ordinal);
+        Assert.Equal(declared, offsets.Keys.Order(StringComparer.Ordinal));
+        return (size, offsets);
+    }
+
+    private static unsafe (int Size, Dictionary<string, int> Offsets) Probe(string typeName) => typeName switch
+    {
+        Nvml + "NvmlUtilization" => Of<NvmlUtilization>(p => p
+            .At("Gpu", ref p.Value.Gpu).At("Memory", ref p.Value.Memory)),
+        Nvml + "NvmlMemory" => Of<NvmlMemory>(p => p
+            .At("Total", ref p.Value.Total).At("Free", ref p.Value.Free).At("Used", ref p.Value.Used)),
+        Nvml + "NvmlBar1Memory" => Of<NvmlBar1Memory>(p => p
+            .At("Total", ref p.Value.Total).At("Free", ref p.Value.Free).At("Used", ref p.Value.Used)),
+        Nvml + "NvmlClockOffset" => Of<NvmlClockOffset>(p => p
+            .At("Version", ref p.Value.Version).At("Type", ref p.Value.Type).At("Pstate", ref p.Value.Pstate)
+            .At("ClockOffsetMHz", ref p.Value.ClockOffsetMHz).At("MinClockOffsetMHz", ref p.Value.MinClockOffsetMHz)
+            .At("MaxClockOffsetMHz", ref p.Value.MaxClockOffsetMHz)),
+        Nvml + "NvmlFanSpeedInfo" => Of<NvmlFanSpeedInfo>(p => p
+            .At("Version", ref p.Value.Version).At("Fan", ref p.Value.Fan).At("SpeedRpm", ref p.Value.SpeedRpm)),
+        Nvml + "NvmlMarginTemperature" => Of<NvmlMarginTemperature>(p => p
+            .At("Version", ref p.Value.Version).At("MarginTemperatureC", ref p.Value.MarginTemperatureC)),
+        Nvml + "NvmlFieldValue" => Of<NvmlFieldValue>(p => p
+            .At("FieldId", ref p.Value.FieldId).At("ScopeId", ref p.Value.ScopeId).At("Timestamp", ref p.Value.Timestamp)
+            .At("LatencyUsec", ref p.Value.LatencyUsec).At("ValueType", ref p.Value.ValueType)
+            .At("Status", ref p.Value.Status).At("Value", ref p.Value.Value)),
+        Nvml + "NvmlPciInfo" => Of<NvmlPciInfo>(p => p
+            .At("BusIdLegacy", ref p.Value.BusIdLegacy[0]).At("Domain", ref p.Value.Domain).At("Bus", ref p.Value.Bus)
+            .At("Device", ref p.Value.Device).At("PciDeviceId", ref p.Value.PciDeviceId)
+            .At("PciSubSystemId", ref p.Value.PciSubSystemId).At("BusId", ref p.Value.BusId[0])),
+
+        Nvapi + "NvThermalSensors" => Of<NvThermalSensors>(p => p
+            .At("Version", ref p.Value.Version).At("Mask", ref p.Value.Mask)
+            .At("Reserved", ref p.Value.Reserved[0]).At("Temperatures", ref p.Value.Temperatures[0])),
+        Nvapi + "NvFanCoolersStatusItem" => Of<NvFanCoolersStatusItem>(p => p
+            .At("CoolerId", ref p.Value.CoolerId).At("CurrentRpm", ref p.Value.CurrentRpm)
+            .At("CurrentMinLevel", ref p.Value.CurrentMinLevel).At("CurrentMaxLevel", ref p.Value.CurrentMaxLevel)
+            .At("CurrentLevel", ref p.Value.CurrentLevel).At("Reserved", ref p.Value.Reserved[0])),
+        Nvapi + "NvFanCoolersStatus" => Of<NvFanCoolersStatus>(p => p
+            .At("Version", ref p.Value.Version).At("Count", ref p.Value.Count)
+            .At("Reserved1", ref p.Value.Reserved1).At("Reserved2", ref p.Value.Reserved2)
+            .At("Reserved3", ref p.Value.Reserved3).At("Reserved4", ref p.Value.Reserved4).At("Items", ref p.Value.Items)),
+        Nvapi + "NvFanCoolerControlItem" => Of<NvFanCoolerControlItem>(p => p
+            .At("CoolerId", ref p.Value.CoolerId).At("Level", ref p.Value.Level)
+            .At("ControlMode", ref p.Value.ControlMode).At("Reserved", ref p.Value.Reserved[0])),
+        Nvapi + "NvFanCoolerControl" => Of<NvFanCoolerControl>(p => p
+            .At("Version", ref p.Value.Version).At("Reserved", ref p.Value.Reserved).At("Count", ref p.Value.Count)
+            .At("Reserved2", ref p.Value.Reserved2[0]).At("Items", ref p.Value.Items)),
+        Nvapi + "NvVoltRailsStatus" => Of<NvVoltRailsStatus>(p => p
+            .At("Version", ref p.Value.Version).At("CoreMicrovolts", ref p.Value.CoreMicrovolts)
+            .At("ReservedAfterCoreMicrovolts", ref p.Value.ReservedAfterCoreMicrovolts)),
+        Nvapi + "NvDynamicPstate" => Of<NvDynamicPstate>(p => p
+            .At("IsPresent", ref p.Value.IsPresent).At("Percentage", ref p.Value.Percentage)),
+        Nvapi + "NvDynamicPstatesInfo" => Of<NvDynamicPstatesInfo>(p => p
+            .At("Version", ref p.Value.Version).At("Flags", ref p.Value.Flags).At("Utilizations", ref p.Value.Utilizations)),
+        Nvapi + "NvThermalPoliciesInfoEntry" => Of<NvThermalPoliciesInfoEntry>(p => p
+            .At("Controller", ref p.Value.Controller).At("Unknown1", ref p.Value.Unknown1)
+            .At("MinimumTemp", ref p.Value.MinimumTemp).At("DefaultTemp", ref p.Value.DefaultTemp)
+            .At("MaximumTemp", ref p.Value.MaximumTemp).At("Unknown2", ref p.Value.Unknown2)),
+        Nvapi + "NvThermalPoliciesInfo" => Of<NvThermalPoliciesInfo>(p => p
+            .At("Version", ref p.Value.Version).At("Count", ref p.Value.Count)
+            .At("Unknown", ref p.Value.Unknown).At("Entries", ref p.Value.Entries)),
+        Nvapi + "NvThermalPoliciesStatusEntry" => Of<NvThermalPoliciesStatusEntry>(p => p
+            .At("Controller", ref p.Value.Controller).At("TargetTemp", ref p.Value.TargetTemp)
+            .At("PstateId", ref p.Value.PstateId)),
+        Nvapi + "NvThermalPoliciesStatus" => Of<NvThermalPoliciesStatus>(p => p
+            .At("Version", ref p.Value.Version).At("Count", ref p.Value.Count).At("Entries", ref p.Value.Entries)),
+        Nvapi + "NvVoltageBoostPercent" => Of<NvVoltageBoostPercent>(p => p
+            .At("Version", ref p.Value.Version).At("Percent", ref p.Value.Percent).At("Reserved", ref p.Value.Reserved[0])),
+
+        Nvapi + "NvClockMaskEntry" => Of<NvClockMaskEntry>(p => p
+            .At("ClockType", ref p.Value.ClockType).At("Enabled", ref p.Value.Enabled).At("Unknown", ref p.Value.Unknown[0])),
+        Nvapi + "NvClockMasks" => Of<NvClockMasks>(p => p
+            .At("Version", ref p.Value.Version).At("Mask", ref p.Value.Mask[0])
+            .At("Unknown1", ref p.Value.Unknown1[0]).At("Clocks", ref p.Value.Clocks)),
+        Nvapi + "NvVfpCurveEntry" => Of<NvVfpCurveEntry>(p => p
+            .At("ClockType", ref p.Value.ClockType).At("FrequencyKHz", ref p.Value.FrequencyKHz)
+            .At("VoltageMicroV", ref p.Value.VoltageMicroV).At("Unknown", ref p.Value.Unknown[0])),
+        Nvapi + "NvVfpCurve" => Of<NvVfpCurve>(p => p
+            .At("Version", ref p.Value.Version).At("Mask", ref p.Value.Mask[0])
+            .At("Unknown1", ref p.Value.Unknown1[0]).At("Clocks", ref p.Value.Clocks)),
+        Nvapi + "NvClockTableEntry" => Of<NvClockTableEntry>(p => p
+            .At("ClockType", ref p.Value.ClockType).At("Unknown1", ref p.Value.Unknown1[0])
+            .At("FrequencyDeltaKHz", ref p.Value.FrequencyDeltaKHz).At("Unknown2", ref p.Value.Unknown2[0])),
+        Nvapi + "NvClockTable" => Of<NvClockTable>(p => p
+            .At("Version", ref p.Value.Version).At("Mask", ref p.Value.Mask[0])
+            .At("Unknown1", ref p.Value.Unknown1[0]).At("Clocks", ref p.Value.Clocks)),
+
+        Nvapi + "DrsApi+NvdrsProfile" => Of<DrsApi.NvdrsProfile>(p => p
+            .At("Version", ref p.Value.Version).At("ProfileName", ref p.Value.ProfileName[0])
+            .At("GpuSupport", ref p.Value.GpuSupport).At("IsPredefined", ref p.Value.IsPredefined)
+            .At("NumOfApps", ref p.Value.NumOfApps).At("NumOfSettings", ref p.Value.NumOfSettings)),
+        Nvapi + "DrsApi+NvdrsApplication" => Of<DrsApi.NvdrsApplication>(p => p
+            .At("Version", ref p.Value.Version).At("IsPredefined", ref p.Value.IsPredefined)
+            .At("AppName", ref p.Value.AppName[0]).At("UserFriendlyName", ref p.Value.UserFriendlyName[0])
+            .At("Launcher", ref p.Value.Launcher[0]).At("FileInFolder", ref p.Value.FileInFolder[0])
+            .At("Flags", ref p.Value.Flags).At("CommandLine", ref p.Value.CommandLine[0])),
+        Nvapi + "DrsApi+NvdrsSetting" => Of<DrsApi.NvdrsSetting>(p => p
+            .At("Version", ref p.Value.Version).At("SettingName", ref p.Value.SettingName[0])
+            .At("SettingId", ref p.Value.SettingId).At("SettingType", ref p.Value.SettingType)
+            .At("SettingLocation", ref p.Value.SettingLocation).At("IsCurrentPredefined", ref p.Value.IsCurrentPredefined)
+            .At("IsPredefinedValid", ref p.Value.IsPredefinedValid).At("PredefinedValue", ref p.Value.PredefinedValue)
+            .At("PredefinedPad", ref p.Value.PredefinedPad[0]).At("CurrentValue", ref p.Value.CurrentValue)
+            .At("CurrentPad", ref p.Value.CurrentPad[0])),
+
+        Stress + "StressAdapter+KmtOpenAdapterFromLuid" => Of<StressAdapter.KmtOpenAdapterFromLuid>(p => p
+            .At("LowPart", ref p.Value.LowPart).At("HighPart", ref p.Value.HighPart)
+            .At("AdapterHandle", ref p.Value.AdapterHandle)),
+        Stress + "StressAdapter+KmtAdapterAddress" => Of<StressAdapter.KmtAdapterAddress>(p => p
+            .At("BusNumber", ref p.Value.BusNumber).At("DeviceNumber", ref p.Value.DeviceNumber)
+            .At("FunctionNumber", ref p.Value.FunctionNumber)),
+        Stress + "StressAdapter+KmtQueryAdapterInfo" => Of<StressAdapter.KmtQueryAdapterInfo>(p => p
+            .At("AdapterHandle", ref p.Value.AdapterHandle).At("Type", ref p.Value.Type)
+            .At("PrivateData", ref p.Value.PrivateData).At("PrivateDataSize", ref p.Value.PrivateDataSize)),
+        Stress + "StressAdapter+KmtCloseAdapter" => Of<StressAdapter.KmtCloseAdapter>(p => p
+            .At("AdapterHandle", ref p.Value.AdapterHandle)),
+
+        _ => throw new ArgumentOutOfRangeException(nameof(typeName), typeName, "no layout probe for this struct"),
+    };
+
+    private static (int Size, Dictionary<string, int> Offsets) Of<T>(Func<LayoutProbe<T>, LayoutProbe<T>> fields)
+        where T : unmanaged
+    {
+        var probe = fields(new LayoutProbe<T>());
+        return (Unsafe.SizeOf<T>(), probe.Offsets);
+    }
+
+    /// <summary>Holds one zeroed T and records Unsafe.ByteOffset from its first byte to each named field.</summary>
+    private sealed class LayoutProbe<T> where T : unmanaged
+    {
+#pragma warning disable CA1051 // the probe exposes its value so callers can take field refs
+        public T Value;
+#pragma warning restore CA1051
+
+        public Dictionary<string, int> Offsets { get; } = new(StringComparer.Ordinal);
+
+        public LayoutProbe<T> At<TField>(string field, ref TField location)
+        {
+            Offsets.Add(field, (int)Unsafe.ByteOffset(ref Unsafe.As<T, byte>(ref Value), ref Unsafe.As<TField, byte>(ref location)));
+            return this;
+        }
     }
 }
