@@ -29,7 +29,7 @@ pass and a redesign of every page.
   test machine: working set 295 → 131 MiB and private memory 199 → 116 MiB at
   steady state, managed allocation −45 %, 11 threads instead of 17; minimized:
   allocation −92 %, working set −55 %; window shown 805 → 548 ms after launch;
-  CLI 171 → 124 ms; portable download 104 → 62 MB. Steady-state CPU is ~0.3 % of
+  CLI 171 → 124 ms; released downloads 104 → 64 MB (portable) and 103 → 47 MB (installer). Steady-state CPU is ~0.3 % of
   one core before and after — it is the driver's time for the per-second
   sensor poll, which every hidden feature (fan curve, flight recorder, alerts)
   depends on
@@ -40,7 +40,7 @@ pass and a redesign of every page.
 - One shared, ReadyToRun-compiled runtime for the app and the CLI instead of two
   compressed single-file executables, which decompressed every assembly into
   private memory at each launch. The portable download shrinks from ~104 MB to
-  ~62 MB; the install grows from 2 files to ~260 (and ~+40 MB on disk)
+  ~64 MB as released; the install grows from 2 files to ~260 (and ~+40 MB on disk)
 - WinForms is no longer loaded at all: the tray icon talks to the shell
   directly (and finally shows the Afterglow icon — the bundled one was never
   copied to the output, so the tray showed Windows' generic icon)

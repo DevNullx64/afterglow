@@ -89,8 +89,13 @@ palette the effect was barely visible — which is why it is off by default.
 
 | | Before | After |
 |---|---:|---:|
-| Portable zip | 103,659,846 B | 61,978,094 B (−40 %) |
+| Portable zip (local build) | 103,659,846 B | 61,978,094 B (−40 %) |
 | Installed files | 7 files, 110.2 MiB | 261 files, 136.5 MiB |
+
+The released artifacts (built by CI, which also carries the merged Intel interop) came out
+slightly larger than the local measurement above: 1.2.0-beta.4 shipped a 104,050,765 B
+portable zip and a 102,614,594 B installer; 1.5.0 ships 64,389,982 B (−38 %) and
+47,273,480 B (−54 %).
 
 ### Where the gains came from
 
