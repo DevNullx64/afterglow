@@ -55,6 +55,8 @@
   rather than depend on that, any clear Afterglow performs during an apply is
   followed by writing the core offset again
 
+## 1.2.0-beta.3 — 2026-08-30
+
 - **Per-point V/F curve editor** (#1) — the Afterburner-style mechanism, on the
   V/F Curve page and as `afterglow-cli vfpoints`: the driver's stored curve
   table drawn over the measured curve (gold dashed), per-point offsets, a
@@ -68,6 +70,20 @@
   known global offset), and RTX 20/30/40 are expected to work via the same
   interfaces (awaiting field confirmation). The capability is probed live,
   never assumed by generation.
+
+## 1.2.0-beta.2 — 2026-08-29
+
+- Multi-GPU support, phase 2: fan configuration is saved per GPU (the Fans
+  page edits and restores the selected card's own mode/curve at startup;
+  pre-multi-GPU settings migrate to the primary card), automation rules
+  watch every GPU independently (breach time and cooldown per card, the fan
+  action pins the breaching card's fans, alerts name the card), and the
+  flight recorder keeps one black box per GPU (primary keeps the original
+  flight directory; secondaries get flight\gpuN — crash forensics scans all
+  of them). Honest limit: dual-GPU behavior is still not verified on real
+  dual-NVIDIA hardware; that verification is what the 1.2.0 betas are for.
+
+## 1.2.0-beta.1 — 2026-08-29
 
 - Multi-GPU support, phase 1 (#1): a title-bar GPU selector (visible when
   more than one NVIDIA card is present) points every page — dashboard,
@@ -84,15 +100,6 @@
   curve (previously all cards fed one curve). CLI: `--gpu N` on
   stress/vram/certify/vfcurve and `mcp --gpu N`; new `stress --probe-adapter`
   diagnostic prints each GPU's NVML-bus → D3D-adapter mapping.
-- Multi-GPU support, phase 2: fan configuration is saved per GPU (the Fans
-  page edits and restores the selected card's own mode/curve at startup;
-  pre-multi-GPU settings migrate to the primary card), automation rules
-  watch every GPU independently (breach time and cooldown per card, the fan
-  action pins the breaching card's fans, alerts name the card), and the
-  flight recorder keeps one black box per GPU (primary keeps the original
-  flight directory; secondaries get flight\gpuN — crash forensics scans all
-  of them). Honest limit: dual-GPU behavior is still not verified on real
-  dual-NVIDIA hardware; that verification is what the 1.2.0 betas are for.
 
 ## 1.1.0 — 2026-08-28
 
@@ -206,6 +213,11 @@ Initial release.
   plus continuous passive recording; pick a point to compute the exact
   offset + clock-lock undervolt. Works on RTX 50, where NVIDIA blocks the
   curve interfaces.
+  > **Correction (1.2.0):** the "NVIDIA blocks the curve interfaces on RTX 50"
+  > claim above was wrong — it was Afterglow's own broken struct layout, not the
+  > driver. The curve interfaces work on RTX 50; 1.2.0 ships direct per-point
+  > curve editing, verified live on an RTX 5090. The original line is left as
+  > written to keep the historical record intact.
 - Agent-native: `afterglow-cli mcp` (Model Context Protocol server) and
   `--json` CLI output for autonomous tuning loops.
 - Burn test loads FP32 pipes, INT pipe, and the memory controller
