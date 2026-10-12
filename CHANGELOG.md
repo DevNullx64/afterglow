@@ -1,5 +1,157 @@
 # Changelog
 
+## Unreleased
+
+### Performance — measured, not estimated ([docs/performance.md](docs/performance.md))
+
+- Resident in the tray (the logon default), against 1.2.0-beta.4 on the RTX 5090
+  test machine: working set 286 → 137 MiB, private memory 186 → 121 MiB, CPU
+  0.65 → 0.46 % of one core, managed allocation −45 %; minimized: allocation
+  −92 %, working set −55 %; window shown 805 → 548 ms after launch; CLI
+  171 → 124 ms; portable download 104 → 62 MB
+- Pages only do display work while you can see them: hidden in the tray or
+  minimized, no page formats readouts, copies graph history or redraws, and
+  opening a page catches up at once. The dashboard copies the last 600 samples
+  its longest graph shows, not the whole hour
+- One shared, ReadyToRun-compiled runtime for the app and the CLI instead of two
+  compressed single-file executables, which decompressed every assembly into
+  private memory at each launch. The portable download shrinks from ~104 MB to
+  ~62 MB; the install grows from 2 files to ~260 (and ~+40 MB on disk)
+- WinForms is no longer loaded at all: the tray icon talks to the shell
+  directly (and finally shows the Afterglow icon — the bundled one was never
+  copied to the output, so the tray showed Windows' generic icon)
+- Native interop rewritten on source-generated P/Invokes, NVAPI function
+  pointers resolved once per process and blittable driver structs: a sensor
+  poll allocates 464 bytes instead of 1,864; every struct's wire layout is
+  pinned by tests
+- The black-box flight recorder writes from a background thread (a stalled
+  disk can no longer delay the fan-curve tick), rotates by rename, caps each
+  session file at 4 MB, and recognises a clean previous session from its last
+  4 KB instead of parsing the whole file at every logon (26 MB on the test PC)
+- Fewer idle wake-ups: FPS-page timers run only while capturing, the game
+  watcher only while game rules exist, the second-launch activation wait is a
+  kernel wait instead of a thread polling every second, and the CSV-only
+  sensors (incl. a ~40 ms blocking PCIe call) are read only while CSV logging
+- Startup: the logon-task query and install-location check moved off the UI
+  thread; each launch logs where its startup time went
+
+### Fixed — per-game driver settings never reached the right game
+
+- Every profile and application name was sent to the driver truncated to its
+  first character (classic marshalling of the structs' fixed `char` buffers).
+  A rule for an exe the driver didn't know created a profile literally named
+  "A" holding an application named after the exe's first letter, and the
+  readback "verification" was truncated the same way. Every later create then
+  collided with "A", which is what was misdiagnosed in 1.1.0 as "current
+  drivers reject creating profiles via NVAPI" — that claim is withdrawn. Names
+  now arrive intact (verified read-only against the driver store: 7,984 full
+  profile names, where the old code read 7,984 single letters). A profile named
+  "A" left by an earlier version is not removed automatically; delete it with
+  NVIDIA Profile Inspector if present
+
+### Fixed
+
+- Shutdown could hand the fans back to firmware and then re-pin them: telemetry
+  now stops before fan control is released, and a released curve can't re-arm
+- Quitting while the V/F probe runs could leave its exact clock pin applied and
+  still record a clean exit; exit now cancels the probe, waits for its restore,
+  and keeps the crash banner armed if the restore didn't land (as already done
+  for the stepper)
+- Temperature alerts fire once per crossing (re-armed 3 °C below) instead of
+  every minute, name the card on multi-GPU systems, and are logged; the tray's
+  rate limit is per kind of alert — a card parked above its alert line no
+  longer silences automation and fan-failure notices
+- A second launch (or the installer's startup-task hook) no longer marks the
+  running instance's crash-recovery records clean on its way out
+- Only one Afterglow with administrator rights can run at a time — a
+  `--data-dir` copy started elevated beside the resident one now explains and
+  exits instead of fighting it over fans, clock locks and TDR resets
+- The tray icon comes back after an Explorer restart even though the logon
+  task runs elevated (UIPI let the shell's broadcast through), and a failed add
+  at logon is retried
+- A corrupt or planted flight log with an out-of-range timestamp no longer
+  blocks every future launch (F-34)
+- The rest of the independent 1.2.0-beta.3 review — every remaining medium and
+  low finding, each with a regression test that fails on the old code:
+  - V/F curve: profile capture keeps the zero offsets a flatten wrote (F-02/07);
+    out-of-range point offsets are refused, not clamped and then reported as
+    verified (F-10/58); clearing the curve reads it back and only touches core
+    slots (F-03/06/23/43/57); a flatten no longer leaves lower points above the
+    target clock (F-11); the V/F and Tuning pages refresh after each other's
+    writes (F-08/75)
+  - Multi-GPU: curve files are keyed by GPU identity (F-15/55) — a V/F curve
+    recorded by an earlier version carries no identity and is not loaded; it
+    rebuilds from telemetry or a one-minute probe; game-exit restore puts back
+    the temperature limit and V/F curve on the card the game used, with that
+    card's own fans (F-16/21); stress/VRAM refuse a lone adapter on the wrong
+    bus (F-17/62); FPS session recording without an NVIDIA GPU (F-18); an
+    unconfirmed restore at exit mid-stepper keeps the crash banner (F-27); an
+    unstamped legacy applied-state record is no longer adopted by two cards
+    (F-59)
+  - Hardware safety: a failed min-fan-speed query keeps a 30% spin floor
+    instead of 0% (F-22); reset refuses a driver default outside the driver's
+    own range (F-24)
+  - CLI: a malformed `--gpu` or a valueless `vfpoints --set/--flatten` exits 2
+    instead of silently using GPU 0 or listing (F-09/12)
+  - Update check understands prerelease versions, so a beta is offered the
+    release (F-42/65/46); the MCP server survives a read-only profile (F-36);
+    the overlay applies settings while open (F-73) and releases its handlers
+    (F-28); telemetry can't poll concurrently from the V/F probe (F-29) or
+    dispose its stop event under a live thread (F-30); the startup-profile
+    picker refreshes (F-74); V/F hit-density bars have the right width (F-76)
+  - Installer: a failed "Start with Windows" registration is reported (F-67);
+    uninstall removes the stale crash-recovery records and asks (default keep)
+    before removing settings, profiles, logs and recordings (F-66); the
+    publish script's PresentMon repair works (F-69)
+  - Docs: the retracted "RTX 50 blocks per-point curve writes" claim is
+    corrected everywhere it survived, nvapioc is credited, SECURITY.md
+    describes the opt-in update check (F-01/04/05/35/38/39/40/41/44/45/47/48/
+    49/50/51/52)
+
+### Security
+
+- When elevated, Afterglow locks `%ProgramData%\Afterglow` to Administrators
+  and SYSTEM (other users keep read access, so unelevated monitoring still
+  works) and refuses settings or profiles owned by another standard user —
+  ProgramData lets any user create files there, which the elevated logon task
+  would otherwise trust. A `--data-dir` folder is never touched
+- The data-folder lock-down also walks the tree on each elevated start:
+  links inside it are removed (never their targets), folders and trusted files
+  are re-owned with inherit-only permissions, and files another user planted
+  are moved aside as `*.untrusted`. Settings and profiles are read through one
+  handle that supplies the owner check, and saved by rename
+- Fan curves have safety floors: the hottest point must ask for at least 30 %
+  and the zero-RPM threshold can't exceed 60 °C (0 % at any temperature is
+  driver-legal, so a curve read from disk could otherwise keep fans stopped)
+- The logon task's definition is no longer staged in user-writable %TEMP%
+  (F-33); schtasks/explorer are launched by full path from the elevated app
+  (F-32); the "non-admin location" warning judges the exe the task actually
+  launches
+
+### Changed
+
+- Windows 11 window chrome: Fluent caption buttons with the red close hover,
+  Snap Layouts on the maximize button, a dark rounded frame with a palette
+  border, and no more clipped edges when maximized. A Mica backdrop is
+  available with `--mica` but off by default: measured, it cost ~0.18 points
+  of a core and ~10 MB while the window is visible, for an effect barely
+  visible behind the dark palette
+- Keyboard: visible focus rings on every control, and the tuning sliders and
+  V/F point picker are reachable by keyboard again (F-77); sliders have
+  screen-reader names; the tray menu matches the dark theme
+- `--data-dir PATH` (app and CLI) keeps all state under PATH instead of
+  ProgramData — for test runs and side-by-side builds — and the elevated
+  relaunch now quotes arguments that contain spaces
+
+### Internal
+
+- C# 14 partial properties for all 166 view-model properties
+  (CommunityToolkit.Mvvm 8.4), `System.Threading.Lock` for every private lock,
+  central package management, xUnit v3 on Microsoft.Testing.Platform, 369 tests
+  (from 140)
+- `tools/measure-perf.ps1` and `tools/measure-startup.ps1` reproduce the numbers
+  in docs/performance.md
+
 ## 1.2.0-beta.4 — 2026-08-30
 
 ### Fixed — independent review of 1.2.0-beta.3 (all 8 high-severity findings)
