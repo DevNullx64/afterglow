@@ -7,10 +7,36 @@ using Afterglow.Core.Telemetry;
 
 namespace Afterglow.App.ViewModels;
 
-public partial class SettingsViewModel : ObservableObject
+public partial class SettingsViewModel : ObservableObject, ILivePage
 {
     private readonly AppServices _services;
     private bool _loading;
+    private volatile bool _isLive;
+
+    /// <summary>
+    /// The Settings page carries no per-tick telemetry, but it is in
+    /// MainViewModel's live-page set, so this is the one hook that fires when
+    /// the user navigates onto the page. The startup-profile pickers are
+    /// rebuilt from disk on that transition, so a profile saved or deleted
+    /// elsewhere in the session actually appears / disappears (F-74).
+    /// </summary>
+    public bool IsLive
+    {
+        get => _isLive;
+        set
+        {
+            if (_isLive == value)
+            {
+                return;
+            }
+
+            _isLive = value;
+            if (value)
+            {
+                RefreshStartupProfileOptions();
+            }
+        }
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PollingLabel))]
@@ -128,8 +154,11 @@ public partial class SettingsViewModel : ObservableObject
         "Global hotkeys:  Ctrl+Alt+O toggle overlay · Ctrl+Alt+R panic reset to defaults · " +
         "Ctrl+Alt+1…5 apply saved profile 1…5 (alphabetical)";
 
+    // The full informational version so a beta identifies itself as such — the
+    // numeric AssemblyVersion drops the "-beta.N" suffix and reported a beta as
+    // plain "1.2.0" (F-46).
     public string AboutText { get; } =
-        $"Afterglow {typeof(SettingsViewModel).Assembly.GetName().Version?.ToString(3) ?? "dev"} — " +
+        $"Afterglow {Core.Services.UpdateChecker.DisplayVersion} — " +
         "open-source tuning and monitoring for NVIDIA RTX GPUs. MIT licensed. " +
         "No kernel drivers, no telemetry, no accounts.";
 
@@ -142,14 +171,38 @@ public partial class SettingsViewModel : ObservableObject
         LoadFrom(services.Settings);
     }
 
-    /// <summary>Repopulates the startup-profile picker (called on page navigation too).</summary>
+    /// <summary>
+    /// Repopulates the startup-profile picker (and, since it shares the same
+    /// collection, the automation-rule profile picker) from disk. Runs at
+    /// construction and on every navigation onto the page (see <see cref="IsLive"/>).
+    /// The current selection is preserved when its profile still exists; if the
+    /// chosen profile was deleted, the picker falls back to "(none)" and the
+    /// persisted startup setting is cleared so startup no longer points at a
+    /// profile that is gone.
+    /// </summary>
     public void RefreshStartupProfileOptions()
     {
+        string previous = SelectedStartupProfile;
+
+        _loading = true;
         StartupProfileOptions.Clear();
         StartupProfileOptions.Add("(none)");
         foreach (var profile in _services.Profiles.LoadAll())
         {
             StartupProfileOptions.Add(profile.Name);
+        }
+
+        bool stillExists = StartupProfileOptions.Contains(previous);
+        SelectedStartupProfile = stillExists ? previous : "(none)";
+        _loading = false;
+
+        if (!stillExists && previous != "(none)")
+        {
+            // The selected profile was deleted this session: drop the dead
+            // reference so RestoreStartupState doesn't tray-alert about a
+            // "no longer exists" profile at the next launch.
+            StartupProfileNote = string.Empty;
+            _services.UpdateSettings(s => s with { ApplyProfileOnStart = null });
         }
     }
 
@@ -346,11 +399,14 @@ public partial class SettingsViewModel : ObservableObject
         UpdateStatusText = "Checking…";
         var current = Core.Services.UpdateChecker.CurrentVersion ?? new Version(0, 0, 0);
         var result = await Core.Services.UpdateChecker.CheckAsync(current);
+        // Display the real running version (prerelease and all), so a beta
+        // tester is never told "up to date (v1.2.0)" while on v1.2.0-beta.3 (F-46/F-65).
+        string running = Core.Services.UpdateChecker.DisplayVersion;
         UpdateStatusText = result is null
             ? "Check failed — no connection, or GitHub rate-limited the request. Nothing was retried."
             : result.UpdateAvailable
-                ? $"{result.LatestTag} is available (you're on v{current.ToString(3)}) — use the Releases page button."
-                : $"Up to date (v{current.ToString(3)}).";
+                ? $"{result.LatestTag} is available (you're on v{running}) — use the Releases page button."
+                : $"Up to date (v{running}).";
     }
 
     [RelayCommand]

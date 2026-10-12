@@ -150,10 +150,22 @@ public static class SettingsStore
 
     public static AppSettings Load()
     {
+        // First read in the elevated app: lock down the data root and turn on
+        // the load-time owner check, so settings planted by a standard user are
+        // not trusted (ProgramData hardening). No-op when unelevated or --data-dir.
+        Security.DataRootProtection.EnsureHardened();
+
         try
         {
             if (File.Exists(AppPaths.SettingsFile))
             {
+                if (!Security.DataRootProtection.MayLoad(AppPaths.SettingsFile))
+                {
+                    // An untrusted-owner settings.json (e.g. planted before the
+                    // lock-down) is ignored in favour of safe defaults.
+                    return new AppSettings();
+                }
+
                 return JsonSerializer.Deserialize<AppSettings>(
                     File.ReadAllText(AppPaths.SettingsFile), JsonOptions) ?? new AppSettings();
             }

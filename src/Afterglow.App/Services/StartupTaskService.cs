@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.IO;
-using System.Security;
 using System.Security.Principal;
 
 namespace Afterglow.App.Services;
@@ -55,23 +54,46 @@ public static class StartupTaskService
                 "this on from there.");
         }
 
-        string tmp = Path.Combine(Path.GetTempPath(), $"afterglow-task-{Environment.ProcessId}.xml");
+        // Stage the task XML in a freshly created, administrators-only directory
+        // under %WINDIR%\Temp instead of the old %TEMP%\afterglow-task-<pid>.xml.
+        // The old location was writable by the same user's unelevated processes
+        // under a fully predictable name, so a medium-IL process could pre-create
+        // or swap the file between our write and the elevated schtasks reading it
+        // (TOCTOU, F-33). Here the directory name is random, its DACL grants only
+        // SYSTEM + Administrators, and we hold the file open (FileShare.Read) for
+        // the whole schtasks call, so there is no window in which anything the
+        // standard user controls can influence what schtasks consumes.
+        string stagingRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Temp");
+        string stagingDir = Path.Combine(stagingRoot, "afterglow-task-" + Guid.NewGuid().ToString("N"));
         try
         {
-            File.WriteAllText(tmp, BuildTaskXml(exe, sid), System.Text.Encoding.Unicode);
-            return RunSchtasks($"/Create /TN \"{TaskName}\" /XML \"{tmp}\" /F") == 0
+            if (!Core.Security.ProtectedDirectory.TryCreateExclusive(stagingDir, allowUsersRead: false))
+            {
+                return new StartupTaskResult(
+                    "Afterglow couldn't create a private directory to stage the startup task definition.");
+            }
+
+            string xmlPath = Path.Combine(stagingDir, "task.xml");
+            using var stream = new FileStream(xmlPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+            using var writer = new StreamWriter(stream, System.Text.Encoding.Unicode);
+            writer.Write(Core.Security.LogonTaskDefinition.BuildXml(exe, sid));
+            writer.Flush();
+            stream.Flush(flushToDisk: true);
+
+            return RunSchtasks($"/Create /TN \"{TaskName}\" /XML \"{xmlPath}\" /F") == 0
                 ? new StartupTaskResult(null)
                 : new StartupTaskResult("Task Scheduler refused to create the startup task.");
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            return new StartupTaskResult($"Couldn't stage the task definition in {tmp}: {ex.Message}");
+            return new StartupTaskResult($"Couldn't stage the startup task definition: {ex.Message}");
         }
         finally
         {
             try
             {
-                File.Delete(tmp);
+                Directory.Delete(stagingDir, recursive: true);
             }
             catch (IOException)
             {
@@ -83,51 +105,6 @@ public static class StartupTaskService
     }
 
     public static bool Disable() => RunSchtasks($"/Delete /TN \"{TaskName}\" /F") == 0;
-
-    /// <summary>
-    /// ExecutionTimeLimit PT0S is load-bearing: the scheduler's default 72-hour
-    /// limit would kill a resident tray app mid-week.
-    /// </summary>
-    internal static string BuildTaskXml(string exePath, string userSid) => $"""
-        <?xml version="1.0" encoding="UTF-16"?>
-        <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-          <RegistrationInfo>
-            <Description>Starts Afterglow at logon, elevated, without a UAC prompt.</Description>
-          </RegistrationInfo>
-          <Triggers>
-            <LogonTrigger>
-              <Enabled>true</Enabled>
-              <UserId>{userSid}</UserId>
-            </LogonTrigger>
-          </Triggers>
-          <Principals>
-            <Principal id="Author">
-              <UserId>{userSid}</UserId>
-              <LogonType>InteractiveToken</LogonType>
-              <RunLevel>HighestAvailable</RunLevel>
-            </Principal>
-          </Principals>
-          <Settings>
-            <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-            <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-            <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-            <AllowHardTerminate>true</AllowHardTerminate>
-            <StartWhenAvailable>false</StartWhenAvailable>
-            <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
-            <AllowStartOnDemand>true</AllowStartOnDemand>
-            <Enabled>true</Enabled>
-            <Hidden>false</Hidden>
-            <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-            <Priority>7</Priority>
-          </Settings>
-          <Actions Context="Author">
-            <Exec>
-              <Command>{SecurityElement.Escape(exePath)}</Command>
-              <Arguments>--minimized</Arguments>
-            </Exec>
-          </Actions>
-        </Task>
-        """;
 
     private static int RunSchtasks(string arguments)
     {
