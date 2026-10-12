@@ -27,9 +27,12 @@ public static class StressAdapter
     /// Picks the NVIDIA adapter on the given PCI bus; with a null bus, the
     /// largest-VRAM NVIDIA adapter. When a bus is requested but cannot be
     /// matched, this returns null (with the reason in <paramref name="description"/>)
-    /// unless exactly one NVIDIA adapter exists — a single card cannot be the
-    /// wrong card, so it is used with a "bus unverified" note instead of
-    /// making every stress test unusable on systems where the bus query fails.
+    /// unless exactly one NVIDIA adapter exists AND its bus query failed — then
+    /// nothing contradicts the request, so it is used with a "bus unverified"
+    /// note instead of making every stress test unusable on systems where the
+    /// query fails. A lone adapter that reports a different bus is refused:
+    /// NVML can see a card DXGI does not, so "only one adapter" does not mean
+    /// "the right adapter" (see <see cref="Choose"/>).
     /// </summary>
     public static IDXGIAdapter1? Select(uint? pciBusId, out string description)
     {
@@ -52,43 +55,13 @@ public static class StressAdapter
 
         try
         {
-            if (candidates.Count == 0)
+            int pick = Choose(
+                candidates.Select(c => new AdapterCandidate(c.Name, c.Vram, c.Bus)).ToList(),
+                pciBusId,
+                out description);
+            if (pick < 0)
             {
                 return null;
-            }
-
-            int pick;
-            if (pciBusId is { } bus)
-            {
-                pick = candidates.FindIndex(c => c.Bus == bus);
-                if (pick >= 0)
-                {
-                    description = $"{candidates[pick].Name} (PCI bus {bus})";
-                }
-                else if (candidates.Count == 1)
-                {
-                    pick = 0;
-                    description = $"{candidates[0].Name} (bus unverified — DXGI bus query unavailable)";
-                }
-                else
-                {
-                    description = $"none of the {candidates.Count} NVIDIA adapters matched PCI bus {bus} — " +
-                        "refusing to guess which card to load.";
-                    return null;
-                }
-            }
-            else
-            {
-                pick = 0;
-                for (int i = 1; i < candidates.Count; i++)
-                {
-                    if (candidates[i].Vram > candidates[pick].Vram)
-                    {
-                        pick = i;
-                    }
-                }
-
-                description = candidates[pick].Name;
             }
 
             var chosen = candidates[pick].Adapter;
@@ -102,6 +75,80 @@ public static class StressAdapter
                 adapter.Dispose();
             }
         }
+    }
+
+    /// <summary>One enumerated NVIDIA adapter, as the selection policy sees it (Bus null = query failed).</summary>
+    internal readonly record struct AdapterCandidate(string Name, long Vram, uint? Bus);
+
+    /// <summary>
+    /// The selection policy, separated from DXGI enumeration so it can be
+    /// tested: the index of the adapter to load, or -1 with the reason in
+    /// <paramref name="description"/>. A requested bus that no adapter is on
+    /// is refused, with one exception — a lone adapter whose bus query failed,
+    /// because then nothing contradicts the request. A lone adapter whose
+    /// query answered with a DIFFERENT bus is not that exception: the answer
+    /// says it is another card (the tuned one is hidden from DXGI — TCC or
+    /// compute mode, say), and loading it would gather stress, VRAM, stepper
+    /// and certification evidence from a card nobody tuned (F-17, F-62).
+    /// </summary>
+    internal static int Choose(IReadOnlyList<AdapterCandidate> candidates, uint? pciBusId, out string description)
+    {
+        description = string.Empty;
+        if (candidates.Count == 0)
+        {
+            return -1;
+        }
+
+        int pick;
+        if (pciBusId is { } bus)
+        {
+            pick = -1;
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                if (candidates[i].Bus == bus)
+                {
+                    pick = i;
+                    break;
+                }
+            }
+
+            if (pick >= 0)
+            {
+                description = $"{candidates[pick].Name} (PCI bus {bus})";
+            }
+            else if (candidates.Count == 1 && candidates[0].Bus is null)
+            {
+                pick = 0;
+                description = $"{candidates[0].Name} (bus unverified — DXGI bus query unavailable)";
+            }
+            else if (candidates.Count == 1)
+            {
+                description = $"the only NVIDIA adapter DirectX exposes ({candidates[0].Name}) is on PCI bus " +
+                    $"{candidates[0].Bus}, not the tuned card's bus {bus} — refusing to load a different card.";
+                return -1;
+            }
+            else
+            {
+                description = $"none of the {candidates.Count} NVIDIA adapters matched PCI bus {bus} — " +
+                    "refusing to guess which card to load.";
+                return -1;
+            }
+        }
+        else
+        {
+            pick = 0;
+            for (int i = 1; i < candidates.Count; i++)
+            {
+                if (candidates[i].Vram > candidates[pick].Vram)
+                {
+                    pick = i;
+                }
+            }
+
+            description = candidates[pick].Name;
+        }
+
+        return pick;
     }
 
     /// <summary>
