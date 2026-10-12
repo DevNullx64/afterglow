@@ -41,6 +41,7 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Load intensity" FontSize="12.5" VerticalAlignment="Center" />
                         <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="512" Maximum="8192"
+                                AutomationProperties.Name="Burn intensity, iterations per dispatch"
                                 Value="{Binding Intensity}" TickFrequency="256" IsSnapToTickEnabled="True"
                                 VerticalAlignment="Center" IsEnabled="{Binding StressRunning, Converter={x:Static views:Converters.InverseBool}}" />
                         <TextBlock Grid.Column="2" Text="{Binding IntensityLabel}" FontSize="12.5"
@@ -153,6 +154,7 @@
                                 <Run Text="Step: +" /><Run Text="{Binding StepMHz, StringFormat=F0}" /><Run Text=" MHz" />
                             </TextBlock>
                             <Slider Style="{StaticResource TuneSlider}" Minimum="10" Maximum="60" Value="{Binding StepMHz}"
+                                    AutomationProperties.Name="Stepper step size, megahertz"
                                     TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,8,0,0" />
                         </StackPanel>
                         <StackPanel Margin="0,0,14,0">
@@ -160,6 +162,7 @@
                                 <Run Text="Per step: " /><Run Text="{Binding SecondsPerStep, StringFormat=F0}" /><Run Text=" s" />
                             </TextBlock>
                             <Slider Style="{StaticResource TuneSlider}" Minimum="30" Maximum="300" Value="{Binding SecondsPerStep}"
+                                    AutomationProperties.Name="Seconds per step"
                                     TickFrequency="15" IsSnapToTickEnabled="True" Margin="0,8,0,0" />
                         </StackPanel>
                         <StackPanel>
@@ -167,6 +170,7 @@
                                 <Run Text="Ceiling: +" /><Run Text="{Binding MaxOffset, StringFormat=F0}" /><Run Text=" MHz" />
                             </TextBlock>
                             <Slider Style="{StaticResource TuneSlider}" Minimum="50" Maximum="600" Value="{Binding MaxOffset}"
+                                    AutomationProperties.Name="Maximum offset to try, megahertz"
                                     TickFrequency="25" IsSnapToTickEnabled="True" Margin="0,8,0,0" />
                         </StackPanel>
                     </UniformGrid>
