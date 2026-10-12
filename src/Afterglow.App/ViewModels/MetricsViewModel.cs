@@ -110,23 +110,10 @@ public partial class MetricsViewModel : ObservableObject
             return;
         }
 
-        double power = 0;
-        double gpuTemp = 0;
-        double memTemp = 0;
-        int samples = 0;
-        uint deviceIndex = _services.SelectedGpu?.Index ?? 0;
-        foreach (var snapshot in _services.Telemetry.HistoryFor(deviceIndex).GetAll())
-        {
-            if (snapshot.Timestamp < _captureStartedAt)
-            {
-                continue;
-            }
-
-            power += snapshot.PowerW ?? 0;
-            gpuTemp += snapshot.GpuTempC ?? 0;
-            memTemp += snapshot.MemJunctionTempC ?? 0;
-            samples++;
-        }
+        // FPS capture needs no NVIDIA GPU; with none there is no history for
+        // device 0, and a throw here would leave the capture unstoppable (F-18).
+        var telemetry = Core.Metrics.SessionTelemetry.Since(
+            _services.Telemetry, _services.SelectedGpu?.Index ?? 0, _captureStartedAt);
 
         int core = 0;
         int mem = 0;
@@ -152,9 +139,9 @@ public partial class MetricsViewModel : ObservableObject
             Low1Fps = last.Stats.Low1Fps,
             P1Fps = last.Stats.P1Fps,
             Frames = last.Stats.FrameCount,
-            AvgPowerW = samples > 0 ? power / samples : 0,
-            AvgGpuTempC = samples > 0 ? gpuTemp / samples : 0,
-            AvgMemJunctionC = samples > 0 ? memTemp / samples : 0,
+            AvgPowerW = telemetry.PowerW,
+            AvgGpuTempC = telemetry.GpuTempC,
+            AvgMemJunctionC = telemetry.MemJunctionC,
             CoreOffsetMHz = core,
             MemOffsetMHz = mem,
         };
@@ -219,10 +206,20 @@ public partial class MetricsViewModel : ObservableObject
     {
         if (CaptureRunning)
         {
-            RecordSession();
-            _services.FrameMetrics.Session.Dispose();
-            CaptureRunning = false;
-            CaptureStatusText = "Capture stopped.";
+            try
+            {
+                RecordSession();
+            }
+            finally
+            {
+                // Stopping never depends on the report: whatever goes wrong
+                // writing it, the capture ends and the button leaves the
+                // running state instead of rethrowing on every click (F-18).
+                _services.FrameMetrics.Session.Dispose();
+                CaptureRunning = false;
+                CaptureStatusText = "Capture stopped.";
+            }
+
             return;
         }
 
