@@ -70,6 +70,38 @@ public static class TuningMath
 
         return Math.Min(Math.Max(requested, minSpinDuty), 100);
     }
+
+    /// <summary>
+    /// Spin floor used when the driver will not state one. NVML documents the
+    /// minimum as typically 30–100 % (docs/research/driver-apis.md), and the
+    /// RTX 5090 reports exactly 30.
+    /// </summary>
+    public const uint FallbackMinSpinDutyPct = 30;
+
+    /// <summary>
+    /// The fixed-fan spin floor from the driver's min/max query (F-22). The
+    /// query's out parameter is written even when it fails, so taking it as-is
+    /// turned "unsupported" into a 0 % floor: a requested 5 % then reached the
+    /// fans unrounded and could stall them in manual mode. Only a successful,
+    /// plausible report is trusted; anything else keeps the conservative floor.
+    /// A reported 0 is not trusted either — 0 % stays reachable as the explicit
+    /// fan-stop request <see cref="NormalizeFixedFanDuty"/> passes through.
+    /// </summary>
+    public static uint ResolveMinSpinDuty(bool querySucceeded, uint reportedMinPct) =>
+        querySucceeded && reportedMinPct is > 0 and <= 100 ? reportedMinPct : FallbackMinSpinDutyPct;
+
+    /// <summary>
+    /// A driver-reported default (temp limit, power limit) the reset path may
+    /// write back, or null when it is not one (F-24): the reset used to write
+    /// the temp-limit default with no check at all, while every other path
+    /// clamps that knob into the driver's own range. A default outside the range
+    /// the same driver reports — or a zero, the shape of a failed query — is
+    /// not something to send to hardware on the panic path.
+    /// </summary>
+    public static double? UsableDefault(double reportedDefault, double min, double max) =>
+        reportedDefault > 0 && min <= max && reportedDefault >= min && reportedDefault <= max
+            ? reportedDefault
+            : null;
 }
 
 public sealed record KnobResult(string Knob, bool Applied, string Detail)
@@ -152,12 +184,22 @@ public sealed class GpuTuner
         _ = _nvml.TryGetMaxClock(NvmlClockType.Graphics, out uint maxClock);
 
         uint fanCount = 0;
-        uint fanMin = 30;
+        uint fanMin = TuningMath.FallbackMinSpinDutyPct;
         bool fanControl = false;
         if (_nvml.TryGetNumFans(out uint fans) == NvmlReturn.Success && fans > 0)
         {
             fanCount = fans;
-            _ = _nvml.TryGetMinMaxFanSpeed(out fanMin, out _);
+
+            // Never `out fanMin` directly: the call writes its out value even on
+            // failure, which silently replaced the fallback with 0 (F-22).
+            var minRc = _nvml.TryGetMinMaxFanSpeed(out uint reportedMin, out _);
+            fanMin = TuningMath.ResolveMinSpinDuty(minRc == NvmlReturn.Success, reportedMin);
+            if (minRc != NvmlReturn.Success || fanMin != reportedMin)
+            {
+                Log.Warn($"Fan minimum duty: driver query returned {minRc} ({reportedMin}%); " +
+                         $"using a conservative {fanMin}% spin floor for fixed-duty fan control.");
+            }
+
             fanControl = true;
         }
 
@@ -337,17 +379,41 @@ public sealed class GpuTuner
                 Report(results, "clock lock", unlockRc, "unlocked");
             }
 
-            if (Capabilities.SupportsPowerLimit && Capabilities.PowerLimitDefaultW > 0)
+            // Driver-reported defaults are bounded by the same driver's range
+            // before they are written (F-24). One that fails the check is
+            // skipped and reported — a reset that leaves a knob as it was must
+            // say so, not count as a clean reset (the power limit used to be
+            // skipped with no result at all when its default read 0).
+            if (Capabilities.SupportsPowerLimit)
             {
-                Report(results, "power limit",
-                    _nvml.TrySetPowerLimit((uint)(Capabilities.PowerLimitDefaultW * 1000)),
-                    $"{Capabilities.PowerLimitDefaultW:F0} W");
+                if (TuningMath.UsableDefault(
+                        Capabilities.PowerLimitDefaultW, Capabilities.PowerLimitMinW, Capabilities.PowerLimitMaxW)
+                    is double defaultW)
+                {
+                    Report(results, "power limit", _nvml.TrySetPowerLimit((uint)(defaultW * 1000)), $"{defaultW:F0} W");
+                }
+                else
+                {
+                    results.Add(RefuseDefault("power limit",
+                        $"{Capabilities.PowerLimitDefaultW:F0} W",
+                        $"{Capabilities.PowerLimitMinW:F0}..{Capabilities.PowerLimitMaxW:F0} W"));
+                }
             }
 
             if (Capabilities.SupportsTempLimit && _nvapi is not null)
             {
-                ReportNv(results, "temp limit", _nvapi.TrySetTempLimit(Capabilities.TempLimitDefaultC),
-                    $"{Capabilities.TempLimitDefaultC} C");
+                if (TuningMath.UsableDefault(
+                        Capabilities.TempLimitDefaultC, Capabilities.TempLimitMinC, Capabilities.TempLimitMaxC)
+                    is double defaultC)
+                {
+                    ReportNv(results, "temp limit", _nvapi.TrySetTempLimit((int)defaultC), $"{defaultC:F0} C");
+                }
+                else
+                {
+                    results.Add(RefuseDefault("temp limit",
+                        $"{Capabilities.TempLimitDefaultC} C",
+                        $"{Capabilities.TempLimitMinC}..{Capabilities.TempLimitMaxC} C"));
+                }
             }
 
             if (Capabilities.SupportsVoltageBoost && _nvapi is not null)
@@ -362,6 +428,15 @@ public sealed class GpuTuner
             Log.Info($"Reset to defaults: {(all ? "ok" : "PARTIAL")}");
             return new ApplyResult(all, results);
         }
+    }
+
+    /// <summary>A reset step skipped because the driver's own default failed its range check (F-24).</summary>
+    private static KnobResult RefuseDefault(string knob, string reportedDefault, string range)
+    {
+        string detail = $"not reset — the driver-reported default {reportedDefault} is outside its own range " +
+                        $"{range} (or was not reported), so it was not written; the current value is unchanged";
+        Log.Warn($"Reset to defaults: {knob} {detail}");
+        return KnobResult.Fail(knob, detail);
     }
 
     /// <summary>The driver's stored per-point V/F table with applied offsets (empty when unsupported).</summary>
