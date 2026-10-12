@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <IsPackable>false</IsPackable>
+    <!-- LibraryImport stubs (CommandLineTests calls the real Windows argv parser). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Underscore-separated test names are the xUnit naming convention. -->
     <NoWarn>$(NoWarn);CA1707</NoWarn>
   </PropertyGroup>

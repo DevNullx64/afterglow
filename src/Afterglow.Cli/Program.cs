@@ -8,6 +8,15 @@ internal static class Program
 {
     private static int Main(string[] args)
     {
+        try
+        {
+            args = Afterglow.Core.CommandLine.ApplyDataDir(args);
+        }
+        catch (ArgumentException ex)
+        {
+            return Fail(ex.Message);
+        }
+
         string command = args.Length > 0 ? args[0].ToLowerInvariant() : "help";
         return command switch
         {

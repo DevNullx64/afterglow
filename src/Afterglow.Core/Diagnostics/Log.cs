@@ -17,7 +17,9 @@ public static class Log
     private static StreamWriter? _writer;
     private static bool _initFailed;
 
-    public static string LogFile { get; } = Path.Combine(AppPaths.LogsDir, "afterglow.log");
+    // Computed, not captured at type init: --data-dir may move the root after
+    // the type is first touched (the writer itself opens lazily).
+    public static string LogFile => Path.Combine(AppPaths.LogsDir, "afterglow.log");
 
     public static void Info(string message) => Write("INFO", message);
 

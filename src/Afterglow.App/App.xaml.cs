@@ -31,7 +31,21 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        var args = new HashSet<string>(e.Args, StringComparer.OrdinalIgnoreCase);
+        // --data-dir first: every path below (log, settings, flight files, the
+        // single-instance name) must already point at the redirected root.
+        string[] argv;
+        try
+        {
+            argv = Core.CommandLine.ApplyDataDir(e.Args);
+        }
+        catch (ArgumentException ex)
+        {
+            MessageBox.Show(ex.Message, "Afterglow", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(2);
+            return;
+        }
+
+        var args = new HashSet<string>(argv, StringComparer.OrdinalIgnoreCase);
 
         if (args.Contains("--present-storm"))
         {
@@ -60,17 +74,19 @@ public partial class App : Application
         }
 
         bool demo = args.Contains("--demo");
-        string? screenshotPath = GetArgValue(e.Args, "--screenshot");
-        string? page = GetArgValue(e.Args, "--page");
+        string? screenshotPath = Core.CommandLine.ValueOf(argv, "--screenshot");
+        string? page = Core.CommandLine.ValueOf(argv, "--page");
 
         // Single instance: two Afterglows would fight over fan control, hotkeys,
         // and the TDR watchdog. A second launch signals the first to come forward.
+        // A --data-dir instance is its own instance (own state, own names).
         if (screenshotPath is null && !demo)
         {
+            string suffix = Core.AppPaths.InstanceSuffix;
             _singleInstanceMutex = new System.Threading.Mutex(
-                initiallyOwned: true, @"Local\AfterglowSingleInstance", out bool isFirst);
+                initiallyOwned: true, @"Local\AfterglowSingleInstance" + suffix, out bool isFirst);
             _activationSignal = new System.Threading.EventWaitHandle(
-                false, System.Threading.EventResetMode.AutoReset, @"Local\AfterglowActivate");
+                false, System.Threading.EventResetMode.AutoReset, @"Local\AfterglowActivate" + suffix);
             if (!isFirst)
             {
                 _ = _activationSignal.Set();
@@ -235,19 +251,6 @@ public partial class App : Application
         thread.Start();
     }
 
-    private static string? GetArgValue(string[] args, string name)
-    {
-        for (int i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i].Equals(name, StringComparison.OrdinalIgnoreCase))
-            {
-                return args[i + 1];
-            }
-        }
-
-        return null;
-    }
-
     private static bool TryRelaunchElevated(string[] args)
     {
         try
@@ -257,7 +260,9 @@ public partial class App : Application
             {
                 UseShellExecute = true,
                 Verb = "runas",
-                Arguments = string.Join(' ', args),
+                // Quoted: a plain space join splits any argument holding a space
+                // (a --data-dir or --screenshot path) when the elevated copy parses it.
+                Arguments = Core.CommandLine.Join(args),
             };
             _ = Process.Start(startInfo);
             return true;
