@@ -67,10 +67,12 @@ internal static class Program
               vfcurve [--probe]             Record and print the measured voltage/frequency
                       [--seconds N] [--gpu N]  curve. --probe locks each clock step under load
                       [--load] [--fresh]    and maps the full curve in ~1 min (admin).
-              vfpoints [--gpu N]            Per-point V/F curve control (verified on RTX 50,
-                       [--set "I=MHZ,..."]  expected on 20/30/40). No args = list the stored
-                       [--flatten MV:MHZ]   table; --flatten = classic curve undervolt at the
-                       [--clear]            point nearest MV (admin for writes).
+              vfpoints [--gpu N]            Per-point V/F curve control (probed live; verified
+                       [--set "I=MHZ,..."]  on RTX 50). No args = list the stored table; --set
+                       [--flatten MV:MHZ]   refuses offsets beyond +/-1500 MHz; --flatten =
+                       [--clear]            curve undervolt at the point nearest MV; --clear
+                                            removes point offsets and reports what every point
+                                            reads afterwards (admin for writes).
               mcp [--gpu N]                 Model Context Protocol server over stdio, so AI
                                             agents can monitor, tune, and stability-test the
                                             GPU with typed tools (run elevated for writes).
@@ -80,6 +82,8 @@ internal static class Program
             D3D adapter (matched by PCI bus, never by adapter order).
 
             caps, get, and monitor --once accept --json for machine-readable output.
+            --data-dir PATH (before the command) keeps settings, profiles, logs and
+            curves under PATH instead of %ProgramData%\Afterglow.
               help                          Show this help.
             """);
         return 0;
