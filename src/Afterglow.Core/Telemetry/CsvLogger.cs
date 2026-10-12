@@ -39,7 +39,7 @@ public sealed class CsvLogger : IDisposable
         "pcie_rx_kbps",
     ];
 
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private StreamWriter? _writer;
     private string _basePath;
     private int _rotation;

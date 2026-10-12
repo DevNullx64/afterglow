@@ -9,7 +9,7 @@ namespace Afterglow.Core.Telemetry;
 public sealed class SnapshotHistory
 {
     private readonly GpuSnapshot?[] _buffer;
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private int _next;
     private int _count;
     private GpuSnapshot? _latest;

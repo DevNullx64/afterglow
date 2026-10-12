@@ -144,7 +144,7 @@ public sealed class GpuStressTest : IDisposable
         }
         """;
 
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private Thread? _thread;
     private volatile bool _stop;
     private StressProgress _progress = new(StressState.Idle, TimeSpan.Zero, 0, 0, 0, null);

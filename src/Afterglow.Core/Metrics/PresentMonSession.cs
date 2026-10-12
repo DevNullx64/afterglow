@@ -32,7 +32,7 @@ public sealed class PresentMonSession : IDisposable
     public const string SessionName = "Afterglow";
     public const string BundledExeName = "PresentMon-2.5.1-x64.exe";
 
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private Process? _process;
     private int _headerParsed;
     private int _colApplication = -1;

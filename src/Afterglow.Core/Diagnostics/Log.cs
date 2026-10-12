@@ -12,7 +12,7 @@ public static class Log
     private const long MaxBytes = 4 * 1024 * 1024;
     private const int RingCapacity = 400;
 
-    private static readonly object Lock = new();
+    private static readonly Lock Sync = new();
     private static readonly Queue<string> Ring = new();
     private static StreamWriter? _writer;
     private static bool _initFailed;
@@ -31,7 +31,7 @@ public static class Log
     /// <summary>Most recent log lines (newest last) for in-app display.</summary>
     public static IReadOnlyList<string> Recent()
     {
-        lock (Lock)
+        lock (Sync)
         {
             return Ring.ToArray();
         }
@@ -42,7 +42,7 @@ public static class Log
         string line = string.Create(CultureInfo.InvariantCulture,
             $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} [{level,-5}] {message}");
 
-        lock (Lock)
+        lock (Sync)
         {
             Ring.Enqueue(line);
             while (Ring.Count > RingCapacity)

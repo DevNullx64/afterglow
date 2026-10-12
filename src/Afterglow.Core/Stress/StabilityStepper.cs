@@ -38,7 +38,7 @@ public sealed record StepperStatus(
 public sealed class StabilityStepper
 {
     private readonly GpuTuner _tuner;
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private readonly List<string> _log = [];
     private Thread? _thread;
     private volatile bool _cancel;

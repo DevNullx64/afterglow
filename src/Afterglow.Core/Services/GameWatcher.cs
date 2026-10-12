@@ -13,7 +13,7 @@ namespace Afterglow.Core.Services;
 /// </summary>
 public sealed class GameWatcher : IDisposable
 {
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private readonly Dictionary<string, GameRule> _rules = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _activeGames = new(StringComparer.OrdinalIgnoreCase);
     private Timer? _timer;

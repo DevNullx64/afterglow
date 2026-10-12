@@ -37,7 +37,7 @@ public sealed class VfCurveRecorder
     }
 
     private readonly SortedDictionary<int, Bin> _bins = [];
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     /// <summary>Ignore samples below this GPU load — idle points aren't curve points.</summary>
     public uint MinLoadPct { get; set; } = 25;

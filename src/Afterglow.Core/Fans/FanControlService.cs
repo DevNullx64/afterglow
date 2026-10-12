@@ -29,8 +29,8 @@ public sealed class FanControlService : IDisposable
     private readonly Func<NvmlReturn> _restoreAutoFans;
     private readonly string? _gpuUuid;
     private readonly uint _fanMinDutyPct;
-    private readonly object _lock = new();
-    private readonly object _commandLock = new();
+    private readonly Lock _lock = new();
+    private readonly Lock _commandLock = new();
 
     private FanControlMode _mode = FanControlMode.Auto;
     private FanCurveEvaluator? _evaluator;

@@ -33,7 +33,7 @@ public sealed class ProfileCertifier
 {
     private readonly GpuTuner _tuner;
     private readonly ProfileStore _store;
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private readonly List<string> _log = [];
     private Thread? _thread;
     private volatile bool _cancel;
