@@ -92,6 +92,24 @@ public sealed class CaptionHitTestTests
     }
 
     [Fact]
+    public void Every_caption_button_has_an_accessible_name()
+    {
+        var root = MainWindowXaml();
+        var titleBar = TitleBar(root);
+
+        var buttons = titleBar.Descendants(Presentation + "Button").ToList();
+        Assert.True(buttons.Count >= 3, "Expected the minimize, maximize and close buttons in the title bar.");
+
+        // The buttons render icon-font glyphs (U+E921 etc.): without a name a screen reader
+        // announces a private-use character or nothing.
+        string[] unnamed = [.. buttons.Where(b => !HasAutomationName(b)).Select(Describe)];
+
+        Assert.True(unnamed.Length == 0,
+            "Caption buttons without AutomationProperties.Name (directly or from their style): "
+            + string.Join(", ", unnamed));
+    }
+
+    [Fact]
     public void Main_window_takes_every_colour_from_the_palette()
     {
         var root = MainWindowXaml();
@@ -109,6 +127,15 @@ public sealed class CaptionHitTestTests
         Assert.True(literals.Length == 0,
             "Hard-coded colours in MainWindow.xaml; name them in Theme/Palette.xaml instead: "
             + string.Join(", ", literals));
+    }
+
+    private static bool HasAutomationName(XElement element)
+    {
+        const string NameProperty = "AutomationProperties.Name";
+        return element.Attributes().Any(a => a.Name.LocalName == NameProperty && a.Value.Length > 0)
+            || StyleChain(element).Any(style => style.Elements(Presentation + "Setter").Any(setter =>
+                (string?)setter.Attribute("Property") == NameProperty &&
+                !string.IsNullOrEmpty((string?)setter.Attribute("Value"))));
     }
 
     /// <summary>#RGB, #ARGB, #RRGGBB or #AARRGGBB.</summary>
@@ -143,19 +170,32 @@ public sealed class CaptionHitTestTests
             return true;
         }
 
-        // The caption buttons get it from a Style; resolve one StaticResource hop in this file.
-        string? key = StaticResourceKey((string?)element.Attribute("Style"));
-        if (key is null || element.Document is null)
-        {
-            return false;
-        }
-
-        var style = element.Document.Descendants(Presentation + "Style")
-            .FirstOrDefault(s => (string?)s.Attribute(Xaml + "Key") == key);
-
-        return style is not null && style.Elements(Presentation + "Setter").Any(setter =>
+        // The caption buttons get it from a Style (possibly through BasedOn).
+        return StyleChain(element).Any(style => style.Elements(Presentation + "Setter").Any(setter =>
             ((string?)setter.Attribute("Property"))?.EndsWith(HitTestProperty, StringComparison.Ordinal) == true &&
-            string.Equals((string?)setter.Attribute("Value"), "True", StringComparison.OrdinalIgnoreCase));
+            string.Equals((string?)setter.Attribute("Value"), "True", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// The element's Style and every style it is BasedOn, resolved by StaticResource key
+    /// within this file (the caption styles live in Window.Resources).
+    /// </summary>
+    private static IEnumerable<XElement> StyleChain(XElement element)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        string? key = StaticResourceKey((string?)element.Attribute("Style"));
+        while (key is not null && element.Document is not null && seen.Add(key))
+        {
+            var style = element.Document.Descendants(Presentation + "Style")
+                .FirstOrDefault(s => (string?)s.Attribute(Xaml + "Key") == key);
+            if (style is null)
+            {
+                yield break;
+            }
+
+            yield return style;
+            key = StaticResourceKey((string?)style.Attribute("BasedOn"));
+        }
     }
 
     private static string? StaticResourceKey(string? markup) =>
@@ -167,7 +207,8 @@ public sealed class CaptionHitTestTests
 
     private static string Describe(XElement element) =>
         element.Name.LocalName + " "
-        + ((string?)element.Attribute("Content") ?? (string?)element.Attribute("ItemsSource") ?? "(unnamed)");
+        + ((string?)element.Attribute(Xaml + "Name") ?? (string?)element.Attribute("Content")
+            ?? (string?)element.Attribute("ItemsSource") ?? "(unnamed)");
 
     private static XElement MainWindowXaml()
     {

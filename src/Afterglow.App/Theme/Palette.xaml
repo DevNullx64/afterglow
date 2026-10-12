@@ -41,6 +41,41 @@
     <SolidColorBrush x:Key="WarnSurface" Color="{StaticResource WarnSurfaceColor}" />
     <SolidColorBrush x:Key="WarnSoft" Color="{StaticResource WarnSoftColor}" />
 
+    <!-- Window surfaces. MainWindow refers to these with DynamicResource: they are opaque
+         by default (the classic look, and the fallback on Windows 10, high contrast,
+         transparency effects off, or the no-mica switch). When DWM accepts the Mica backdrop,
+         MainWindow swaps in the *Mica variants: the same palette colours with alpha, so
+         the wallpaper-tinted material shows through as a hint of depth while cards (Bg2)
+         stay opaque and keep the hierarchy. Mica's dark base (~#202020 plus tint) is
+         lighter than Bg0, so the content tint stays nearly opaque (91 %) and the chrome
+         tint at 75 %. Measured on Windows 11 25H2 over a black wallpaper (backdrop ~#222222,
+         active and inactive alike): chrome #16191E instead of #12161D, content #0E1115
+         instead of #0C0F14. A colourful wallpaper tints those slightly; not measured. -->
+    <SolidColorBrush x:Key="ChromeSurface" Color="{StaticResource Bg1Color}" />
+    <SolidColorBrush x:Key="ContentSurface" Color="{StaticResource Bg0Color}" />
+    <SolidColorBrush x:Key="ChromeSurfaceMica" Color="#C012161D" />
+    <SolidColorBrush x:Key="ContentSurfaceMica" Color="#E80C0F14" />
+
+    <!-- Behind the caption buttons. With the frame extended into the client area, DWM still
+         draws its own min/max/close glyphs in the frame under the title bar; a translucent
+         title bar lets them ghost through. This strip is opaque Bg1 over the caption-button
+         block (MainWindow sizes it) and fades into the tint to its left, so the system glyphs
+         stay covered without a visible block edge. Over the opaque fallback it is invisible. -->
+    <LinearGradientBrush x:Key="CaptionStrip" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Offset="0" Color="#0012161D" />
+        <GradientStop Offset="0.42" Color="{StaticResource Bg1Color}" />
+        <GradientStop Offset="1" Color="{StaticResource Bg1Color}" />
+    </LinearGradientBrush>
+
+    <!-- Caption buttons (Windows 11 values: SubtleFillColorSecondary/Tertiary, close red). -->
+    <SolidColorBrush x:Key="CaptionHover" Color="#0FFFFFFF" />
+    <SolidColorBrush x:Key="CaptionPressed" Color="#0AFFFFFF" />
+    <SolidColorBrush x:Key="CaptionGlyphPressed" Color="#C5FFFFFF" />
+    <SolidColorBrush x:Key="CaptionCloseHover" Color="#C42B1C" />
+    <SolidColorBrush x:Key="CaptionClosePressed" Color="#E6C42B1C" />
+    <SolidColorBrush x:Key="CaptionCloseGlyph" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="CaptionCloseGlyphPressed" Color="#B3FFFFFF" />
+
     <!-- Metric series colors (shared by graphs, legends, and the overlay). -->
     <Color x:Key="SeriesClockColor">#58A6FF</Color>
     <Color x:Key="SeriesTempColor">#FF6B5B</Color>
