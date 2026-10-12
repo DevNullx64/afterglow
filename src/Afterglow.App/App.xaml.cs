@@ -380,9 +380,18 @@ public partial class App : Application
         // stepper still in flight has an untested offset applied, and its cancel
         // path restores the offset the run started from. Applying writes a fresh
         // record with CleanShutdown = false, so restoring after MarkCleanShutdown
-        // would fake a crash on the next launch.
+        // would fake a crash on the next launch. And when the restore did not
+        // land (the wait ran out, or the driver refused it), the exit is not
+        // clean: the records stay unclean so the next launch's banner says the
+        // last tuning may still be applied, instead of an unvalidated offset
+        // surviving with nothing to say so (F-27).
+        bool settled = _mainViewModel?.Stability.StopForShutdown() ?? true;
+        if (settled)
+        {
+            AppliedStateStore.MarkCleanShutdown();
+        }
+
         _mainViewModel?.Stability.Dispose();
-        AppliedStateStore.MarkCleanShutdown();
         _services?.Dispose();
         _activationSignal?.Dispose();
         _singleInstanceMutex?.Dispose();
