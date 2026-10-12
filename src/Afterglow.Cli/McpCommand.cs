@@ -85,7 +85,9 @@ internal static class McpCommand
                         ["serverInfo"] = new JsonObject
                         {
                             ["name"] = "afterglow",
-                            ["version"] = typeof(McpCommand).Assembly.GetName().Version?.ToString(3) ?? "dev",
+                            // Full informational version so an agent can tell a beta
+                            // from the final release (F-46); numeric AssemblyVersion drops "-beta.N".
+                            ["version"] = Afterglow.Core.Services.UpdateChecker.DisplayVersion,
                         },
                     });
                     break;
