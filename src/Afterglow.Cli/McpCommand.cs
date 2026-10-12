@@ -152,7 +152,14 @@ internal static class McpCommand
         {
             outcome = tool.Invoke(parameters?["arguments"] as JsonObject);
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IOException)
+        // UnauthorizedAccessException is NOT an IOException: ProfileStore.Save
+        // (File.Replace/WriteAllText) raises it when the profile file is
+        // read-only or owned by another account, and without it here that
+        // escaped the loop and killed the whole stdio server mid-session
+        // instead of returning an error to the agent (F-36). Matches the GUI's
+        // ProfilesViewModel save handler.
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IOException
+                                   or UnauthorizedAccessException)
         {
             outcome = new { error = ex.Message };
             isError = true;

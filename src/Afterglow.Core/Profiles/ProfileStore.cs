@@ -22,7 +22,18 @@ public sealed class ProfileStore
     public ProfileStore(string? directory = null)
     {
         _directory = directory ?? AppPaths.ProfilesDir;
-        Directory.CreateDirectory(_directory);
+
+        // Best-effort: a store whose directory can't be created (ProgramData
+        // locked down, a read-only path, an AV block) must still construct, so
+        // a host that only reads — or that never touches profiles at all — is
+        // not killed at startup. Save/LoadAll retry and report instead (F-36).
+        try
+        {
+            Directory.CreateDirectory(_directory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     /// <summary>Files that failed to parse during the last <see cref="LoadAll"/>.</summary>
@@ -33,7 +44,21 @@ public sealed class ProfileStore
         var profiles = new List<TuningProfile>();
         var errors = new List<(string, string)>();
 
-        foreach (string file in Directory.EnumerateFiles(_directory, "*.json"))
+        // Enumeration itself can throw (directory missing, unreadable, or not a
+        // directory at all) — that used to escape LoadAll and, from the MCP
+        // server's list_profiles tool, take the whole stdio process down (F-36).
+        IEnumerable<string> files;
+        try
+        {
+            files = Directory.EnumerateFiles(_directory, "*.json").ToArray();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LastLoadErrors = [(_directory, ex.Message)];
+            return [];
+        }
+
+        foreach (string file in files)
         {
             try
             {
@@ -86,6 +111,12 @@ public sealed class ProfileStore
         {
             throw new InvalidOperationException($"Refusing to save invalid profile: {error}");
         }
+
+        // Retry directory creation here — the constructor's attempt is
+        // best-effort, so a store that couldn't make its folder then may be
+        // able to now. A genuine failure surfaces as the IOException /
+        // UnauthorizedAccessException that every Save caller already handles.
+        Directory.CreateDirectory(_directory);
 
         string path = PathFor(profile.Name);
         string temp = path + ".tmp";
