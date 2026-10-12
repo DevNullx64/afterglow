@@ -4,168 +4,188 @@
              xmlns:controls="clr-namespace:Afterglow.App.Controls"
              xmlns:views="clr-namespace:Afterglow.App.Views">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="24,18,24,24" MaxWidth="900" HorizontalAlignment="Left">
+        <Grid Margin="24,20,24,24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="1000" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
 
-            <TextBlock Text="FPS &amp; Frametimes" Style="{StaticResource PageTitle}" />
-            <TextBlock Style="{StaticResource PageSubtitle}"
-                       Text="Windows present-event tracing (Intel PresentMon) — no RivaTuner, no game injection, anticheat-friendly." />
+                <TextBlock Text="FPS &amp; Frametimes" Style="{StaticResource PageTitle}" />
+                <TextBlock Style="{StaticResource PageSubtitle}"
+                           Text="Frame timing from Windows' own present events (Intel PresentMon). Nothing is injected into the game, and no RivaTuner is needed." />
 
-            <Border Style="{StaticResource Card}" Margin="0,14,0,0">
-                <StackPanel>
-                    <StackPanel Orientation="Horizontal">
-                        <Button Style="{StaticResource PrimaryButton}" MinWidth="140"
-                                Command="{Binding ToggleCaptureCommand}">
-                            <Button.Content>
-                                <TextBlock>
-                                    <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
-                                            <Setter Property="Text" Value="Start capture" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding CaptureRunning}" Value="True">
-                                                    <Setter Property="Text" Value="Stop capture" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </TextBlock.Style>
-                                </TextBlock>
-                            </Button.Content>
-                        </Button>
-                        <TextBlock Text="{Binding CaptureStatusText}" FontSize="12" Foreground="{StaticResource TextMuted}"
-                                   VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="620" />
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource Card}" Margin="0,10,0,0">
-                <StackPanel>
-                    <Grid>
-                        <StackPanel>
-                            <TextBlock Text="{Binding AppText}" FontWeight="SemiBold" FontSize="14" />
-                            <TextBlock Text="{Binding PresentModeText}" FontSize="11" Foreground="{StaticResource TextFaint}" />
-                        </StackPanel>
-                        <TextBlock Text="{Binding FrameCountText}" FontSize="11" Foreground="{StaticResource TextFaint}"
-                                   HorizontalAlignment="Right" />
-                    </Grid>
-
-                    <UniformGrid Columns="5" Margin="0,14,0,0">
-                        <StackPanel>
-                            <TextBlock Text="AVG FPS" Style="{StaticResource CardTitle}" />
-                            <TextBlock Text="{Binding AvgFpsText}" FontSize="24" FontWeight="SemiBold"
-                                       Foreground="{StaticResource SeriesFps}" />
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock Text="P1 FPS" Style="{StaticResource CardTitle}" />
-                            <TextBlock Text="{Binding P1Text}" FontSize="24" FontWeight="SemiBold" />
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock Text="P0.1 FPS" Style="{StaticResource CardTitle}" />
-                            <TextBlock Text="{Binding P01Text}" FontSize="24" FontWeight="SemiBold" />
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock Text="1% LOW" Style="{StaticResource CardTitle}" />
-                            <TextBlock Text="{Binding Low1Text}" FontSize="24" FontWeight="SemiBold" />
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock Text="0.1% LOW" Style="{StaticResource CardTitle}" />
-                            <TextBlock Text="{Binding Low01Text}" FontSize="24" FontWeight="SemiBold" />
-                        </StackPanel>
-                    </UniformGrid>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                        <TextBlock FontSize="11.5" Foreground="{StaticResource TextMuted}">
-                            <Run Text="frametime avg " /><Run Text="{Binding AvgFrametimeText}" /><Run Text="   worst " /><Run Text="{Binding MaxFrametimeText}" />
-                        </TextBlock>
-                    </StackPanel>
-
-                    <TextBlock Text="FRAMETIMES (ms) — LAST 600 FRAMES" Style="{StaticResource CardTitle}" Margin="0,14,0,0" />
-                    <controls:SparkGraph Values="{Binding FrametimeSeries}" Stroke="{StaticResource SeriesFps}"
-                                         Height="140" Margin="0,8,0,0" Capacity="600" />
-                </StackPanel>
-            </Border>
-
-            <TextBlock Text="{Binding MethodNote}" FontSize="11" Foreground="{StaticResource TextFaint}"
-                       TextWrapping="Wrap" Margin="2,10,0,0" />
-
-            <!-- Session history / before-after report card -->
-            <Border Style="{StaticResource Card}" Margin="0,10,0,0">
-                <StackPanel>
+                <!-- Capture -->
+                <Border Style="{StaticResource Card}" Margin="0,20,0,0">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Session history — before/after your tuning" FontWeight="SemiBold" FontSize="13.5" />
-                        <Button Grid.Column="1" Style="{StaticResource GhostButton}" Content="Copy as Markdown"
-                                Command="{Binding CopySessionHistoryCommand}" />
+                        <Button Style="{StaticResource PrimaryButton}" MinWidth="140" VerticalAlignment="Top"
+                                Command="{Binding ToggleCaptureCommand}">
+                            <TextBlock>
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock" BasedOn="{StaticResource InheritingText}">
+                                        <Setter Property="Text" Value="Start capture" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CaptureRunning}" Value="True">
+                                                <Setter Property="Text" Value="Stop capture" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Button>
+                        <TextBlock Grid.Column="1" Text="{Binding CaptureStatusText}" Style="{StaticResource StatusText}"
+                                   VerticalAlignment="Center" Margin="16,0,0,0" />
                     </Grid>
-                    <TextBlock Text="{Binding SessionHistoryNote}" FontSize="11.5" Foreground="{StaticResource TextFaint}"
-                               TextWrapping="Wrap" Margin="0,2,0,0" />
-                    <ListBox ItemsSource="{Binding SessionHistory}" Margin="0,10,0,0" MaxHeight="320"
-                             SelectionMode="Extended" SelectionChanged="OnSessionSelectionChanged"
-                             Background="Transparent" BorderThickness="0"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                        <ListBox.ItemContainerStyle>
-                            <Style TargetType="ListBoxItem">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="ListBoxItem">
-                                            <Border x:Name="Root" Background="{StaticResource Bg3}" CornerRadius="7"
-                                                    Padding="10,7" Margin="0,3" BorderThickness="1"
-                                                    BorderBrush="Transparent">
-                                                <ContentPresenter />
-                                            </Border>
-                                            <ControlTemplate.Triggers>
-                                                <Trigger Property="IsSelected" Value="True">
-                                                    <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource Accent}" />
-                                                </Trigger>
-                                            </ControlTemplate.Triggers>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </ListBox.ItemContainerStyle>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
+                </Border>
+
+                <!-- Live numbers -->
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{Binding AppText}" Style="{StaticResource SectionTitle}" />
+                                <TextBlock Text="{Binding PresentModeText}" Style="{StaticResource FieldHint}" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Text="{Binding FrameCountText}" Style="{StaticResource Caption}"
+                                       VerticalAlignment="Top" />
+                        </Grid>
+
+                        <UniformGrid Columns="5" Margin="0,16,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Average FPS" Style="{StaticResource CardTitle}" />
+                                <TextBlock Text="{Binding AvgFpsText}" Style="{StaticResource MetricValue}"
+                                           Foreground="{StaticResource SeriesFps}" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="P1 FPS" Style="{StaticResource CardTitle}" />
+                                <TextBlock Text="{Binding P1Text}" Style="{StaticResource MetricValue}" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="P0.1 FPS" Style="{StaticResource CardTitle}" />
+                                <TextBlock Text="{Binding P01Text}" Style="{StaticResource MetricValue}" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="1% low" Style="{StaticResource CardTitle}" />
+                                <TextBlock Text="{Binding Low1Text}" Style="{StaticResource MetricValue}" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="0.1% low" Style="{StaticResource CardTitle}" />
+                                <TextBlock Text="{Binding Low01Text}" Style="{StaticResource MetricValue}" />
+                            </StackPanel>
+                        </UniformGrid>
+
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,8,0,0">
+                            <Run Text="Frametime: average " /><Run Text="{Binding AvgFrametimeText, Mode=OneWay}" Foreground="{StaticResource Text}" /><Run Text=" · worst " /><Run Text="{Binding MaxFrametimeText, Mode=OneWay}" Foreground="{StaticResource Text}" />
+                        </TextBlock>
+
+                        <TextBlock Text="Frametimes (ms) · last 600 frames" Style="{StaticResource CardTitle}" Margin="0,20,0,0" />
+                        <controls:SparkGraph Values="{Binding FrametimeSeries}" Stroke="{StaticResource SeriesFps}"
+                                             Height="150" Margin="0,12,0,0" Capacity="600" />
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Text="{Binding MethodNote}" Style="{StaticResource Footnote}" />
+
+                <!-- Session history / before-after report card -->
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Session history: before and after your tuning" Style="{StaticResource SectionTitle}"
+                                       VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Style="{StaticResource SubtleButton}" Content="Copy as Markdown"
+                                    Command="{Binding CopySessionHistoryCommand}"
+                                    Visibility="{Binding SessionHistory.Count, Converter={x:Static views:Converters.NonZeroToVisibility}}" />
+                        </Grid>
+                        <TextBlock Text="{Binding SessionHistoryNote}" Style="{StaticResource SectionDescription}" />
+
+                        <Border Style="{StaticResource InsetPanel}" Margin="0,12,0,0"
+                                Visibility="{Binding SessionHistory.Count, Converter={x:Static views:Converters.ZeroToVisibility}}">
+                            <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap"
+                                       Text="No sessions yet. Capture a game for at least 30 seconds and it appears here." />
+                        </Border>
+
+                        <ListBox ItemsSource="{Binding SessionHistory}" Margin="0,8,0,0" MaxHeight="320"
+                                 SelectionMode="Extended" SelectionChanged="OnSessionSelectionChanged"
+                                 Visibility="{Binding SessionHistory.Count, Converter={x:Static views:Converters.NonZeroToVisibility}}">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="FocusVisualStyle" Value="{StaticResource NavFocusRing}" />
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ListBoxItem">
+                                                <Border x:Name="Root" Background="{StaticResource Bg3}" CornerRadius="4"
+                                                        Padding="12,8" Margin="0,2" BorderThickness="1"
+                                                        BorderBrush="Transparent">
+                                                    <ContentPresenter />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Root" Property="Background" Value="{StaticResource Bg3Hover}" />
+                                                    </Trigger>
+                                                    <Trigger Property="IsSelected" Value="True">
+                                                        <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource Accent}" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock FontSize="14">
+                                                <Run Text="{Binding Application, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="   " /><Run Text="{Binding AvgFps, Mode=OneWay, StringFormat=F1}" /><Run Text=" fps avg · " /><Run Text="{Binding Low1Fps, Mode=OneWay, StringFormat=F1}" /><Run Text=" 1% low · " /><Run Text="{Binding AvgPowerW, Mode=OneWay, StringFormat=F0}" /><Run Text=" W · " /><Run Text="{Binding AvgGpuTempC, Mode=OneWay, StringFormat=F0}" /><Run Text=" °C" />
+                                            </TextBlock>
+                                            <TextBlock Style="{StaticResource Caption}" Margin="0,2,0,0">
+                                                <Run Text="core " /><Run Text="{Binding CoreOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · mem " /><Run Text="{Binding MemOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · " /><Run Text="{Binding DurationSeconds, Mode=OneWay}" /><Run Text=" s · " /><Run Text="{Binding Frames, Mode=OneWay}" /><Run Text=" frames" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding StartedAt, Mode=OneWay, StringFormat=g}"
+                                                   Style="{StaticResource Caption}" Foreground="{StaticResource TextFaint}"
+                                                   VerticalAlignment="Top" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <!-- A/B comparison of the two selected sessions -->
+                        <Border Style="{StaticResource InsetPanel}" Margin="0,8,0,0"
+                                Visibility="{Binding HasComparison, Converter={x:Static views:Converters.BoolToVisibility}}">
+                            <StackPanel>
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock FontSize="12.5">
-                                            <Run Text="{Binding Application, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  " /><Run Text="{Binding AvgFps, Mode=OneWay, StringFormat=F1}" /><Run Text=" fps avg · " /><Run Text="{Binding Low1Fps, Mode=OneWay, StringFormat=F1}" /><Run Text=" 1% low · " /><Run Text="{Binding AvgPowerW, Mode=OneWay, StringFormat=F0}" /><Run Text=" W · " /><Run Text="{Binding AvgGpuTempC, Mode=OneWay, StringFormat=F0}" /><Run Text=" °C" />
-                                        </TextBlock>
-                                        <TextBlock FontSize="11" Foreground="{StaticResource TextMuted}">
-                                            <Run Text="core " /><Run Text="{Binding CoreOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · mem " /><Run Text="{Binding MemOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · " /><Run Text="{Binding DurationSeconds, Mode=OneWay}" /><Run Text=" s · " /><Run Text="{Binding Frames, Mode=OneWay}" /><Run Text=" frames" />
-                                        </TextBlock>
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="1" Text="{Binding StartedAt, Mode=OneWay, StringFormat=g}"
-                                               FontSize="10.5" Foreground="{StaticResource TextFaint}" VerticalAlignment="Top" />
+                                    <TextBlock Text="Comparison (B − A)" Style="{StaticResource CardTitle}" VerticalAlignment="Center" />
+                                    <Button Grid.Column="1" Style="{StaticResource SubtleButton}" Content="Copy as Markdown"
+                                            Command="{Binding CopyComparisonCommand}" />
                                 </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                                <TextBlock Text="{Binding CompareText}" Style="{StaticResource LogText}"
+                                           Foreground="{StaticResource Text}" Margin="0,6,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
 
-                    <!-- A/B comparison of the two selected sessions -->
-                    <Border Background="{StaticResource Bg3}" CornerRadius="7" Padding="12,9" Margin="0,8,0,0"
-                            Visibility="{Binding HasComparison, Converter={x:Static views:Converters.BoolToVisibility}}">
-                        <StackPanel>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="COMPARISON (B − A)" Style="{StaticResource CardTitle}" />
-                                <Button Grid.Column="1" Style="{StaticResource GhostButton}" Content="Copy as Markdown"
-                                        Command="{Binding CopyComparisonCommand}" />
-                            </Grid>
-                            <TextBlock Text="{Binding CompareText}" FontFamily="Consolas" FontSize="12"
-                                       TextWrapping="Wrap" Margin="0,6,0,0" />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-            </Border>
-
-        </StackPanel>
+            </StackPanel>
+        </Grid>
     </ScrollViewer>
 </UserControl>

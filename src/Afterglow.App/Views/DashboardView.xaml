@@ -4,7 +4,7 @@
              xmlns:controls="clr-namespace:Afterglow.App.Controls"
              xmlns:views="clr-namespace:Afterglow.App.Views">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="24,18,24,24">
+        <StackPanel Margin="24,20,24,24">
 
             <Grid>
                 <StackPanel>
@@ -12,7 +12,7 @@
                     <TextBlock Text="{Binding ThrottleMarginText}" Style="{StaticResource PageSubtitle}" />
                 </StackPanel>
                 <ItemsControl ItemsSource="{Binding ThrottleChips}" HorizontalAlignment="Right"
-                              VerticalAlignment="Top" Margin="0,4,0,0">
+                              VerticalAlignment="Top" Margin="0,8,0,0" Focusable="False">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <StackPanel Orientation="Horizontal" />
@@ -21,153 +21,167 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Border Background="{Binding Severity, Converter={x:Static views:Converters.SeverityToBrush}}"
-                                    CornerRadius="6" Padding="9,4" Margin="6,0,0,0"
+                                    CornerRadius="4" Padding="8,3" Margin="6,0,0,0"
                                     ToolTip="{Binding Explanation}">
-                                <TextBlock Text="{Binding Label}" FontSize="11.5" />
+                                <TextBlock Text="{Binding Label}" FontSize="12" />
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
             </Grid>
 
-            <!-- Hero cards (click one to expand its 10-minute graph) -->
-            <UniformGrid Columns="4" Margin="0,14,0,0">
-                <Border Style="{StaticResource Card}" Margin="0,0,10,10" Tag="clock" Cursor="Hand"
-                        MouseLeftButtonUp="OnTileClick" ToolTip="Click to expand">
+            <!-- Hero tiles (click or Enter to expand the 10-minute graph). The grid's -12 right
+                 margin cancels the last column's gap so the gaps are even. -->
+            <UniformGrid Columns="4" Margin="0,20,-12,0">
+                <Button Style="{StaticResource TileButton}" Margin="0,0,12,12" Tag="clock" Click="OnTileClick"
+                        ToolTip="Show the last 10 minutes" AutomationProperties.Name="Core clock: show the last 10 minutes">
                     <StackPanel>
-                        <TextBlock Text="CORE CLOCK" Style="{StaticResource CardTitle}" />
-                        <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Core clock" Style="{StaticResource CardTitle}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                             <TextBlock Text="{Binding CoreClockText}" Style="{StaticResource MetricValue}" />
                             <TextBlock Text="MHz" Style="{StaticResource MetricUnit}" />
                         </StackPanel>
-                        <TextBlock Text="{Binding MemClockText}" FontSize="11.5" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Text="{Binding MemClockText}" Style="{StaticResource MetricSub}" />
                         <controls:SparkGraph Values="{Binding CoreClockSeries}" Stroke="{StaticResource SeriesClock}"
-                                             Height="34" Margin="0,6,0,0" ShowScale="False" Capacity="180" />
+                                             Height="34" Margin="0,10,0,0" ShowScale="False" Capacity="180" />
                     </StackPanel>
-                </Border>
+                </Button>
 
-                <Border Style="{StaticResource Card}" Margin="0,0,10,10" Tag="temp" Cursor="Hand"
-                        MouseLeftButtonUp="OnTileClick" ToolTip="Click to expand">
+                <Button Style="{StaticResource TileButton}" Margin="0,0,12,12" Tag="temp" Click="OnTileClick"
+                        ToolTip="Show the last 10 minutes" AutomationProperties.Name="Temperature: show the last 10 minutes">
                     <StackPanel>
-                        <TextBlock Text="TEMPERATURE" Style="{StaticResource CardTitle}" />
-                        <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Temperature" Style="{StaticResource CardTitle}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                             <TextBlock Text="{Binding TempText}" Style="{StaticResource MetricValue}" />
                             <TextBlock Text="°C" Style="{StaticResource MetricUnit}" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{Binding HotSpotText}" FontSize="11.5" Foreground="{StaticResource TextMuted}" />
-                            <TextBlock Text="{Binding MemJunctionText}" FontSize="11.5" Foreground="{StaticResource TextMuted}"
-                                       Margin="8,0,0,0" />
+                            <TextBlock Text="{Binding HotSpotText}" Style="{StaticResource MetricSub}" />
+                            <TextBlock Text="{Binding MemJunctionText}" Style="{StaticResource MetricSub}" Margin="10,0,0,0" />
                         </StackPanel>
                         <controls:SparkGraph Values="{Binding TempSeries}" Stroke="{StaticResource SeriesTemp}"
-                                             Height="34" Margin="0,6,0,0" ShowScale="False" Capacity="180" />
+                                             Height="34" Margin="0,10,0,0" ShowScale="False" Capacity="180" />
                     </StackPanel>
-                </Border>
+                </Button>
 
-                <Border Style="{StaticResource Card}" Margin="0,0,10,10" Tag="power" Cursor="Hand"
-                        MouseLeftButtonUp="OnTileClick" ToolTip="Click to expand">
+                <Button Style="{StaticResource TileButton}" Margin="0,0,12,12" Tag="power" Click="OnTileClick"
+                        ToolTip="Show the last 10 minutes" AutomationProperties.Name="Board power: show the last 10 minutes">
                     <StackPanel>
-                        <TextBlock Text="BOARD POWER" Style="{StaticResource CardTitle}" />
-                        <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Board power" Style="{StaticResource CardTitle}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                             <TextBlock Text="{Binding PowerText}" Style="{StaticResource MetricValue}" />
                             <TextBlock Text="W" Style="{StaticResource MetricUnit}" />
                         </StackPanel>
-                        <TextBlock Text="{Binding PowerLimitText}" FontSize="11.5" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Text="{Binding PowerLimitText}" Style="{StaticResource MetricSub}" />
                         <controls:SparkGraph Values="{Binding PowerSeries}" Stroke="{StaticResource SeriesPower}"
-                                             Height="34" Margin="0,6,0,0" ShowScale="False" Capacity="180" />
+                                             Height="34" Margin="0,10,0,0" ShowScale="False" Capacity="180" />
                     </StackPanel>
-                </Border>
+                </Button>
 
-                <Border Style="{StaticResource Card}" Margin="0,0,0,10" Tag="util" Cursor="Hand"
-                        MouseLeftButtonUp="OnTileClick" ToolTip="Click to expand">
+                <Button Style="{StaticResource TileButton}" Margin="0,0,12,12" Tag="util" Click="OnTileClick"
+                        ToolTip="Show the last 10 minutes" AutomationProperties.Name="GPU load: show the last 10 minutes">
                     <StackPanel>
-                        <TextBlock Text="GPU LOAD" Style="{StaticResource CardTitle}" />
-                        <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="GPU load" Style="{StaticResource CardTitle}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                             <TextBlock Text="{Binding UtilText}" Style="{StaticResource MetricValue}" />
                             <TextBlock Text="%" Style="{StaticResource MetricUnit}" />
                         </StackPanel>
-                        <TextBlock Text="{Binding PerfStateText}" FontSize="11.5" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Text="{Binding PerfStateText}" Style="{StaticResource MetricSub}" />
                         <controls:SparkGraph Values="{Binding UtilSeries}" Stroke="{StaticResource SeriesUtil}"
-                                             Height="34" Margin="0,6,0,0" ShowScale="False" Capacity="180"
+                                             Height="34" Margin="0,10,0,0" ShowScale="False" Capacity="180"
                                              FixedMin="0" FixedMax="100" />
                     </StackPanel>
-                </Border>
+                </Button>
 
-                <Border Style="{StaticResource Card}" Margin="0,0,10,0" Tag="vram" Cursor="Hand"
-                        MouseLeftButtonUp="OnTileClick" ToolTip="Click to expand">
+                <Button Style="{StaticResource TileButton}" Margin="0,0,12,12" Tag="vram" Click="OnTileClick"
+                        ToolTip="Show the last 10 minutes" AutomationProperties.Name="Video memory: show the last 10 minutes">
                     <StackPanel>
                         <TextBlock Text="VRAM" Style="{StaticResource CardTitle}" />
-                        <TextBlock Text="{Binding VramText}" FontSize="19" FontWeight="SemiBold" Margin="0,3,0,3" />
-                        <ProgressBar Value="{Binding VramFraction, Mode=OneWay}" Maximum="1" Height="6"
-                                     Background="{StaticResource Bg3}" Foreground="{StaticResource SeriesVram}"
-                                     BorderThickness="0" />
+                        <TextBlock Text="{Binding VramText}" Style="{StaticResource MetricValue}" Margin="0,2,0,0" />
+                        <ProgressBar Value="{Binding VramFraction, Mode=OneWay}" Maximum="1" Height="4" Margin="0,6,0,6"
+                                     Foreground="{StaticResource SeriesVram}" />
                         <controls:SparkGraph Values="{Binding VramSeries}" Stroke="{StaticResource SeriesVram}"
-                                             Height="30" Margin="0,8,0,0" ShowScale="False" Capacity="180" />
+                                             Height="34" Margin="0,6,0,0" ShowScale="False" Capacity="180" />
                     </StackPanel>
-                </Border>
+                </Button>
 
-                <Border Style="{StaticResource Card}" Margin="0,0,10,0" Tag="fan" Cursor="Hand"
-                        MouseLeftButtonUp="OnTileClick" ToolTip="Click to expand">
+                <Button Style="{StaticResource TileButton}" Margin="0,0,12,12" Tag="fan" Click="OnTileClick"
+                        ToolTip="Show the last 10 minutes" AutomationProperties.Name="Fans: show the last 10 minutes">
                     <StackPanel>
-                        <TextBlock Text="FANS" Style="{StaticResource CardTitle}" />
-                        <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Fans" Style="{StaticResource CardTitle}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                             <TextBlock Text="{Binding FanText}" Style="{StaticResource MetricValue}" />
                             <TextBlock Text="%" Style="{StaticResource MetricUnit}" />
                         </StackPanel>
-                        <TextBlock Text="{Binding FanRpmText}" FontSize="11.5" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Text="{Binding FanRpmText}" Style="{StaticResource MetricSub}" />
                         <controls:SparkGraph Values="{Binding FanSeries}" Stroke="{StaticResource SeriesFan}"
-                                             Height="34" Margin="0,6,0,0" ShowScale="False" Capacity="180"
+                                             Height="34" Margin="0,10,0,0" ShowScale="False" Capacity="180"
                                              FixedMin="0" FixedMax="100" />
                     </StackPanel>
-                </Border>
+                </Button>
 
-                <Border Style="{StaticResource Card}" Margin="0,0,10,0" Tag="voltage" Cursor="Hand"
-                        MouseLeftButtonUp="OnTileClick" ToolTip="Click to expand">
+                <Button Style="{StaticResource TileButton}" Margin="0,0,12,12" Tag="voltage" Click="OnTileClick"
+                        ToolTip="Show the last 10 minutes" AutomationProperties.Name="Core voltage: show the last 10 minutes">
                     <StackPanel>
-                        <TextBlock Text="CORE VOLTAGE" Style="{StaticResource CardTitle}" />
-                        <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Core voltage" Style="{StaticResource CardTitle}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                             <TextBlock Text="{Binding VoltageText}" Style="{StaticResource MetricValue}" />
                             <TextBlock Text="mV" Style="{StaticResource MetricUnit}" />
                         </StackPanel>
-                        <TextBlock Text="{Binding EnergyText}" FontSize="11.5" Foreground="{StaticResource TextMuted}" />
+                        <TextBlock Text="{Binding EnergyText}" Style="{StaticResource MetricSub}" />
                         <controls:SparkGraph Values="{Binding VoltageSeries}" Stroke="{StaticResource SeriesVoltage}"
-                                             Height="34" Margin="0,6,0,0" ShowScale="False" Capacity="180" />
+                                             Height="34" Margin="0,10,0,0" ShowScale="False" Capacity="180" />
                     </StackPanel>
-                </Border>
+                </Button>
 
-                <Border Style="{StaticResource Card}" Tag="fps" Cursor="Hand"
-                        MouseLeftButtonUp="OnTileClick" ToolTip="Click to expand"
-                        Visibility="{Binding HasFps, Converter={x:Static views:Converters.BoolToVisibility}}">
-                    <StackPanel>
-                        <TextBlock Text="FPS" Style="{StaticResource CardTitle}" />
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="{Binding FpsText}" Style="{StaticResource MetricValue}"
-                                       Foreground="{StaticResource SeriesFps}" />
-                            <TextBlock Text="{Binding FpsAppText}" Style="{StaticResource MetricUnit}" />
+                <!-- FPS: live while a game is presenting; otherwise an empty state that leads to
+                     the FPS page (the click navigates there instead of expanding nothing). -->
+                <Button Style="{StaticResource TileButton}" Margin="0,0,12,12" Tag="fps" Click="OnTileClick"
+                        ToolTip="Show the frametimes" AutomationProperties.Name="Frames per second">
+                    <Grid>
+                        <StackPanel Visibility="{Binding HasFps, Converter={x:Static views:Converters.BoolToVisibility}}">
+                            <TextBlock Text="FPS" Style="{StaticResource CardTitle}" />
+                            <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                                <TextBlock Text="{Binding FpsText}" Style="{StaticResource MetricValue}"
+                                           Foreground="{StaticResource SeriesFps}" />
+                                <TextBlock Text="{Binding FpsAppText}" Style="{StaticResource MetricUnit}"
+                                           TextTrimming="CharacterEllipsis" MaxWidth="140" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding FpsLowsText}" Style="{StaticResource MetricSub}" />
+                            <controls:SparkGraph Values="{Binding FrametimeSeries}" Stroke="{StaticResource SeriesFps}"
+                                                 Height="34" Margin="0,10,0,0" ShowScale="False" Capacity="360" />
                         </StackPanel>
-                        <TextBlock Text="{Binding FpsLowsText}" FontSize="11.5" Foreground="{StaticResource TextMuted}" />
-                        <controls:SparkGraph Values="{Binding FrametimeSeries}" Stroke="{StaticResource SeriesFps}"
-                                             Height="34" Margin="0,6,0,0" ShowScale="False" Capacity="360" />
-                    </StackPanel>
-                </Border>
+                        <StackPanel Visibility="{Binding HasFps, Converter={x:Static views:Converters.InverseBoolToVisibility}}">
+                            <TextBlock Text="FPS" Style="{StaticResource CardTitle}" />
+                            <TextBlock Text="—" Style="{StaticResource MetricValue}" Foreground="{StaticResource TextFaint}"
+                                       Margin="0,2,0,0" />
+                            <TextBlock Text="No game detected" Style="{StaticResource MetricSub}" />
+                            <TextBlock Margin="0,14,0,0" FontSize="12" Foreground="{StaticResource Accent}">
+                                <Run Text="Open FPS &amp; Frametimes" /><Run Text=" &#xE76C;" FontFamily="{StaticResource IconFont}" FontSize="9" />
+                            </TextBlock>
+                        </StackPanel>
+                    </Grid>
+                </Button>
             </UniformGrid>
 
-            <!-- Expanded tile: one full-width hoverable graph for the clicked hero card -->
-            <Border Style="{StaticResource Card}" Margin="0,8,0,0"
+            <!-- Expanded tile: one full-width hoverable graph for the clicked tile -->
+            <Border Style="{StaticResource Card}" Margin="0,0,0,0"
                     Visibility="{Binding IsExpanded, Converter={x:Static views:Converters.BoolToVisibility}}">
                 <StackPanel>
                     <Grid>
-                        <StackPanel Orientation="Horizontal">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="{Binding ExpandedTitle}" Style="{StaticResource CardTitle}" />
-                            <TextBlock Text="{Binding ExpandedLabel, StringFormat='  ● {0}'}" FontSize="10.5"
+                            <TextBlock Text="{Binding ExpandedLabel, StringFormat='   ● {0}'}" FontSize="12"
                                        Foreground="{Binding ExpandedStroke}"
                                        Visibility="{Binding HasExpandedSecondSeries, Converter={x:Static views:Converters.BoolToVisibility}}" />
-                            <TextBlock Text="{Binding ExpandedLabel2, StringFormat='  ● {0}'}" FontSize="10.5"
+                            <TextBlock Text="{Binding ExpandedLabel2, StringFormat='   ● {0}'}" FontSize="12"
                                        Foreground="{Binding ExpandedStroke2}"
                                        Visibility="{Binding HasExpandedSecondSeries, Converter={x:Static views:Converters.BoolToVisibility}}" />
                         </StackPanel>
-                        <Button Style="{StaticResource GhostButton}" Content="✕ Close" HorizontalAlignment="Right"
-                                Command="{Binding CloseExpandedCommand}" />
+                        <Button Style="{StaticResource SubtleButton}" HorizontalAlignment="Right"
+                                Command="{Binding CloseExpandedCommand}" AutomationProperties.Name="Close the expanded graph">
+                            <TextBlock><Run Text="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="10" /><Run Text="  Close" /></TextBlock>
+                        </Button>
                     </Grid>
                     <controls:SparkGraph Values="{Binding ExpandedSeries}" Values2="{Binding ExpandedSeries2}"
                                          Times="{Binding ExpandedTimes}"
@@ -176,62 +190,63 @@
                                          Label="{Binding ExpandedLabel}" Label2="{Binding ExpandedLabel2}"
                                          FixedMin="{Binding ExpandedFixedMin}" FixedMax="{Binding ExpandedFixedMax}"
                                          Capacity="{Binding ExpandedCapacity}" HoverEnabled="True"
-                                         Height="240" Margin="0,8,0,0" />
+                                         Height="260" Margin="0,12,0,0" />
                 </StackPanel>
             </Border>
 
             <!-- Large graphs (hidden while a tile is expanded) -->
-            <Grid Margin="0,8,0,0"
-                  Visibility="{Binding IsExpanded, Converter={x:Static views:Converters.InverseBoolToVisibility}}">
+            <Grid Visibility="{Binding IsExpanded, Converter={x:Static views:Converters.InverseBoolToVisibility}}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
                     <RowDefinition />
+                    <RowDefinition Height="12" />
                     <RowDefinition />
                 </Grid.RowDefinitions>
 
-                <Border Style="{StaticResource Card}" Grid.Row="0" Grid.Column="0" Margin="0,0,10,10">
+                <Border Style="{StaticResource Card}" Grid.Row="0" Grid.Column="0">
                     <StackPanel>
-                        <TextBlock Text="CORE CLOCK — 10 MIN" Style="{StaticResource CardTitle}" />
+                        <TextBlock Text="Core clock · last 10 min" Style="{StaticResource CardTitle}" />
                         <controls:SparkGraph Values="{Binding CoreClockSeries}" Stroke="{StaticResource SeriesClock}"
                                              Times="{Binding SeriesTimes}" HoverEnabled="True" Unit="MHz"
-                                             Height="130" Margin="0,8,0,0" Capacity="600" />
+                                             Height="140" Margin="0,12,0,0" Capacity="600" />
                     </StackPanel>
                 </Border>
 
-                <Border Style="{StaticResource Card}" Grid.Row="0" Grid.Column="1" Margin="0,0,0,10">
+                <Border Style="{StaticResource Card}" Grid.Row="0" Grid.Column="2">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="TEMPERATURES — 10 MIN" Style="{StaticResource CardTitle}" />
-                            <TextBlock Text="  ● GPU" FontSize="10.5" Foreground="{StaticResource SeriesTemp}" />
-                            <TextBlock Text="  ● memory junction" FontSize="10.5" Foreground="{StaticResource SeriesVram}" />
+                            <TextBlock Text="Temperatures · last 10 min" Style="{StaticResource CardTitle}" />
+                            <TextBlock Text="   ● GPU" FontSize="12" Foreground="{StaticResource SeriesTemp}" />
+                            <TextBlock Text="   ● memory junction" FontSize="12" Foreground="{StaticResource SeriesVram}" />
                         </StackPanel>
                         <controls:SparkGraph Values="{Binding TempSeries}" Values2="{Binding MemJunctionSeries}"
                                              Stroke="{StaticResource SeriesTemp}" Stroke2="{StaticResource SeriesVram}"
                                              Times="{Binding SeriesTimes}" HoverEnabled="True" Unit="°C"
                                              Label="GPU" Label2="mem"
-                                             FixedMin="25" FixedMax="95" Capacity="600"
-                                             Height="130" Margin="0,8,0,0" />
+                                             FixedMin="20" FixedMax="100" Capacity="600"
+                                             Height="140" Margin="0,12,0,0" />
                     </StackPanel>
                 </Border>
 
-                <Border Style="{StaticResource Card}" Grid.Row="1" Grid.Column="0" Margin="0,0,10,0">
+                <Border Style="{StaticResource Card}" Grid.Row="2" Grid.Column="0">
                     <StackPanel>
-                        <TextBlock Text="BOARD POWER — 10 MIN" Style="{StaticResource CardTitle}" />
+                        <TextBlock Text="Board power · last 10 min" Style="{StaticResource CardTitle}" />
                         <controls:SparkGraph Values="{Binding PowerSeries}" Stroke="{StaticResource SeriesPower}"
                                              Times="{Binding SeriesTimes}" HoverEnabled="True" Unit="W"
-                                             Height="130" Margin="0,8,0,0" Capacity="600" />
+                                             Height="140" Margin="0,12,0,0" Capacity="600" />
                     </StackPanel>
                 </Border>
 
-                <Border Style="{StaticResource Card}" Grid.Row="1" Grid.Column="1">
+                <Border Style="{StaticResource Card}" Grid.Row="2" Grid.Column="2">
                     <StackPanel>
-                        <TextBlock Text="GPU LOAD — 10 MIN" Style="{StaticResource CardTitle}" />
+                        <TextBlock Text="GPU load · last 10 min" Style="{StaticResource CardTitle}" />
                         <controls:SparkGraph Values="{Binding UtilSeries}" Stroke="{StaticResource SeriesUtil}"
                                              Times="{Binding SeriesTimes}" HoverEnabled="True" Unit="%"
-                                             Height="130" Margin="0,8,0,0" FixedMin="0" FixedMax="100" Capacity="600" />
+                                             Height="140" Margin="0,12,0,0" FixedMin="0" FixedMax="100" Capacity="600" />
                     </StackPanel>
                 </Border>
             </Grid>

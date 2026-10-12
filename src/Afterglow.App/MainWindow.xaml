@@ -10,6 +10,7 @@
         Background="{StaticResource Bg0}"
         Foreground="{StaticResource Text}"
         FontFamily="{StaticResource UiFont}"
+        FontSize="14"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
 
@@ -166,26 +167,26 @@
                         <DropShadowEffect Color="{StaticResource AccentColor}" BlurRadius="12" ShadowDepth="0" Opacity="0.9" />
                     </Ellipse.Effect>
                 </Ellipse>
-                <TextBlock Text="Afterglow" FontSize="15" FontWeight="SemiBold" Margin="10,0,0,0"
+                <TextBlock Text="Afterglow" FontSize="14" FontWeight="SemiBold" Margin="10,0,0,0"
                            VerticalAlignment="Center" Style="{StaticResource WindowTitleText}" />
-                <Border Background="{StaticResource Bg3}" CornerRadius="6" Padding="8,3" Margin="14,0,0,0"
+                <Border Background="{StaticResource Bg3}" CornerRadius="4" Padding="8,3" Margin="14,0,0,0"
                         VerticalAlignment="Center"
                         Visibility="{Binding HasMultipleGpus, Converter={x:Static views:Converters.InverseBoolToVisibility}}">
-                    <TextBlock Text="{Binding GpuName}" FontSize="11.5" Foreground="{StaticResource TextMuted}" />
+                    <TextBlock Text="{Binding GpuName}" FontSize="12" Foreground="{StaticResource TextMuted}" />
                 </Border>
                 <!-- IsHitTestVisibleInChrome is required inside the 44px WindowChrome caption:
                      without it WM_NCHITTEST answers HTCAPTION here and a click drags the window
                      instead of opening the list. It is set on the ComboBox and not on the
                      StackPanel (it inherits) so the title text stays a drag handle. -->
                 <ComboBox ItemsSource="{Binding GpuOptions}" SelectedIndex="{Binding SelectedGpuOption}"
-                          FontSize="11.5" Margin="14,0,0,0" VerticalAlignment="Center" MinWidth="210"
+                          FontSize="12" MinHeight="28" Padding="10,3,34,3" Margin="14,0,0,0" VerticalAlignment="Center" MinWidth="210"
                           shell:WindowChrome.IsHitTestVisibleInChrome="True"
                           ToolTip="Every page follows the selected GPU; runs already in flight keep the card they started on"
                           Visibility="{Binding HasMultipleGpus, Converter={x:Static views:Converters.BoolToVisibility}}" />
-                <Border Background="{StaticResource WarnSoft}" CornerRadius="6" Padding="8,3" Margin="8,0,0,0"
+                <Border Background="{StaticResource WarnSoft}" CornerRadius="4" Padding="8,3" Margin="8,0,0,0"
                         VerticalAlignment="Center"
                         Visibility="{Binding ShowElevationBadge, Converter={x:Static views:Converters.BoolToVisibility}}">
-                    <TextBlock Text="{Binding ElevationBadge}" FontSize="11" Foreground="{StaticResource Warn}" />
+                    <TextBlock Text="{Binding ElevationBadge}" FontSize="12" Foreground="{StaticResource Warn}" />
                 </Border>
             </StackPanel>
 
@@ -211,7 +212,7 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="{Binding CrashBannerText}" TextWrapping="Wrap" Foreground="{StaticResource Warn}"
-                               FontSize="12.5" VerticalAlignment="Center" />
+                               FontSize="14" VerticalAlignment="Center" />
                     <Button Grid.Column="1" Style="{StaticResource PrimaryButton}" Content="Reset to defaults"
                             Command="{Binding ResetAfterCrashCommand}" Margin="12,0,0,0" />
                     <Button Grid.Column="2" Style="{StaticResource GhostButton}" Content="Keep settings"
@@ -228,7 +229,7 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock Text="{Binding ForensicsBannerText}" TextWrapping="Wrap" Foreground="{StaticResource Warn}"
-                               FontSize="12.5" VerticalAlignment="Center" />
+                               FontSize="14" VerticalAlignment="Center" />
                     <Button Grid.Column="1" Style="{StaticResource PrimaryButton}" Content="View crash report"
                             Command="{Binding ViewCrashReportCommand}" Margin="12,0,0,0" />
                     <Button Grid.Column="2" Style="{StaticResource GhostButton}" Content="Dismiss"
@@ -245,7 +246,7 @@
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Background="{DynamicResource ChromeSurface}">
-                <StackPanel Margin="0,10,0,0">
+                <StackPanel Margin="0,8,0,0">
                     <RadioButton Style="{StaticResource NavButton}" Content="Dashboard" Tag="&#xE9D2;"
                                  IsChecked="{Binding CurrentPageName, Mode=OneWay, Converter={x:Static views:PageMatchConverter.Instance}, ConverterParameter=dashboard}"
                                  Command="{Binding NavigateToCommand}" CommandParameter="dashboard" />
@@ -276,7 +277,7 @@
         <Border Grid.Row="3" Background="{DynamicResource ChromeSurface}" BorderBrush="{StaticResource StrokeSoft}"
                 BorderThickness="0,1,0,0">
             <Grid Margin="16,0">
-                <TextBlock Text="{Binding DriverText}" FontSize="11" Foreground="{StaticResource TextFaint}"
+                <TextBlock Text="{Binding DriverText}" FontSize="12" Foreground="{StaticResource TextFaint}"
                            VerticalAlignment="Center" />
             </Grid>
         </Border>

@@ -15,31 +15,32 @@ public partial class TuningViewModel : ObservableObject
 
     // Pending values (sliders)
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(CoreOffsetLabel))]
+    [NotifyPropertyChangedFor(nameof(CoreOffsetLabel), nameof(HasPendingChanges))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
     public partial double CoreOffset { get; set; }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(MemOffsetLabel))]
+    [NotifyPropertyChangedFor(nameof(MemOffsetLabel), nameof(HasPendingChanges))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
     public partial double MemOffset { get; set; }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(PowerLimitLabel))]
+    [NotifyPropertyChangedFor(nameof(PowerLimitLabel), nameof(HasPendingChanges))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
     public partial double PowerLimit { get; set; }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(VoltageBoostLabel))]
+    [NotifyPropertyChangedFor(nameof(VoltageBoostLabel), nameof(HasPendingChanges))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
     public partial double VoltageBoost { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPendingChanges))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
     public partial bool LockEnabled { get; set; }
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(LockClockLabel))]
+    [NotifyPropertyChangedFor(nameof(LockClockLabel), nameof(HasPendingChanges))]
     [NotifyCanExecuteChangedFor(nameof(ApplyCommand))]
     public partial double LockClock { get; set; } = 2500;
 
@@ -58,6 +59,22 @@ public partial class TuningViewModel : ObservableObject
         : $"{PowerLimit:F0} W";
 
     public string VoltageBoostLabel => $"+{VoltageBoost:F0}%";
+
+    // What the sliders showed when they were last loaded from the card (or applied in
+    // demo mode): anything else on them is a change Apply hasn't sent yet.
+    private (double Core, double Mem, double Power, double Boost, bool Lock, double LockClock) _shownState;
+
+    private (double, double, double, double, bool, double) PendingState =>
+        (CoreOffset, MemOffset, PowerLimit, VoltageBoost, LockEnabled, LockEnabled ? LockClock : 0);
+
+    /// <summary>The sliders hold values the card isn't running yet (shown by the Apply bar).</summary>
+    public bool HasPendingChanges => PendingState != _shownState;
+
+    private void MarkShown()
+    {
+        _shownState = PendingState;
+        OnPropertyChanged(nameof(HasPendingChanges));
+    }
 
     public string LockClockLabel => $"{LockClock:F0} MHz";
 
@@ -180,6 +197,7 @@ public partial class TuningViewModel : ObservableObject
         if (_gpu is null)
         {
             PowerLimit = Capabilities.PowerLimitDefaultW;
+            MarkShown();
             return;
         }
 
@@ -195,6 +213,8 @@ public partial class TuningViewModel : ObservableObject
         {
             LockClock = lc;
         }
+
+        MarkShown();
     }
 
     /// <summary>The pending values as a profile (used by Apply and by "save as profile").</summary>
@@ -233,6 +253,7 @@ public partial class TuningViewModel : ObservableObject
         {
             ApplyResultText = "Applied (demo mode — no hardware was changed).";
             LastApplyFailed = false;
+            MarkShown();
             return;
         }
 
@@ -278,6 +299,7 @@ public partial class TuningViewModel : ObservableObject
             LockEnabled = false;
             ApplyResultText = "Reset (demo mode).";
             LastApplyFailed = false;
+            MarkShown();
             return;
         }
 

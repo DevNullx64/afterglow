@@ -30,8 +30,8 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
 
     [ObservableProperty]
     public partial string PlanText { get; set; } =
-        "Click a point on the curve to target it. Afterglow computes the exact core offset and clock lock " +
-        "that hold that clock at that voltage — pick a point up and to the left of the curve for an undervolt.";
+        "Click a point on the chart to target it. Afterglow works out the core offset and clock lock that " +
+        "hold that clock at that voltage; for an undervolt, pick a point above and to the left of the blue line.";
     [ObservableProperty] public partial bool HasPlan { get; set; }
     [ObservableProperty] public partial string ApplyResultText { get; set; } = string.Empty;
     [ObservableProperty] public partial bool LastApplyFailed { get; set; }
@@ -52,12 +52,16 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
         ? string.Empty
         : "Applying an undervolt needs administrator rights.";
 
-    public string MethodNote { get; } =
-        "Two curves, two truths: the gold dashed line is the driver's stored V/F table (editable per point " +
-        "below), and the blue measured curve is what the GPU actually did — including the power limit and " +
-        "throttling, which the stored table cannot show. Bar shading is how much time was spent at each " +
-        "voltage. Click the chart to compute a lock+offset undervolt from measured reality, or edit the " +
-        "stored table point-by-point; either way, validate on the Stability page before trusting it.";
+    // Only mentions the stored table (gold line, per-point editor) where this driver exposes it.
+    public string MethodNote => SupportsVfPoints
+        ? "Two curves: the gold dashed line is the driver's stored V/F table, which you can edit point by " +
+          "point below; the blue line is what the GPU actually did, including the effect of the power limit " +
+          "and throttling, which the stored table can't show. Bar shading is how long the GPU spent at each " +
+          "voltage. However you undervolt (clicking the chart or editing points), test the result on the " +
+          "Stability page before you trust it."
+        : "The blue line is what the GPU actually did at each voltage, including the effect of the power " +
+          "limit and throttling; bar shading is how long it spent there. Clicking the chart computes a " +
+          "lock + offset undervolt from it. Test the result on the Stability page before you trust it.";
 
     public VfCurveViewModel(AppServices services)
     {
@@ -295,6 +299,7 @@ public partial class VfCurveViewModel : ObservableObject, ILivePage
         OnPropertyChanged(nameof(CanApply));
         OnPropertyChanged(nameof(GateText));
         OnPropertyChanged(nameof(SupportsVfPoints));
+        OnPropertyChanged(nameof(MethodNote));
 
         if (ProbeRunning && _probeGpu is { } probing && probing.Index != _gpu?.Index)
         {

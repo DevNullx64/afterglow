@@ -150,10 +150,6 @@ public partial class SettingsViewModel : ObservableObject, ILivePage
 
     public string AlertMemLabel => AlertMemTemp < 50 ? "off" : $"{AlertMemTemp:F0} °C";
 
-    public string HotkeysText { get; } =
-        "Global hotkeys:  Ctrl+Alt+O toggle overlay · Ctrl+Alt+R panic reset to defaults · " +
-        "Ctrl+Alt+1…5 apply saved profile 1…5 (alphabetical)";
-
     // The full informational version so a beta identifies itself as such — the
     // numeric AssemblyVersion drops the "-beta.N" suffix and reported a beta as
     // plain "1.2.0" (F-46).

@@ -7,7 +7,7 @@
     <Style TargetType="ContextMenu">
         <Setter Property="Foreground" Value="{StaticResource Text}" />
         <Setter Property="FontFamily" Value="{StaticResource UiFont}" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="14" />
         <Setter Property="SnapsToDevicePixels" Value="True" />
         <Setter Property="HasDropShadow" Value="True" />
         <Setter Property="Template">
@@ -32,7 +32,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="MenuItem">
-                    <Border x:Name="Root" Background="Transparent" CornerRadius="5" Padding="12,7">
+                    <Border x:Name="Root" Background="Transparent" CornerRadius="4" Padding="12,7">
                         <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"
                                           VerticalAlignment="Center" />
                     </Border>

@@ -339,10 +339,24 @@ public partial class App : Application
         window.Top = -20000;
         window.ShowInTaskbar = false;
         window.ShowActivated = false;
+
+        // --screenshot-size WxH renders at another size (design reviews of a
+        // whole long page, the minimum window size, README framing).
+        string[] cliArgs = Environment.GetCommandLineArgs();
+        if (Core.CommandLine.ValueOf(cliArgs, "--screenshot-size") is { } size &&
+            size.Split('x', 'X') is [var w, var h] &&
+            double.TryParse(w, System.Globalization.CultureInfo.InvariantCulture, out double width) &&
+            double.TryParse(h, System.Globalization.CultureInfo.InvariantCulture, out double height))
+        {
+            window.MinWidth = Math.Min(window.MinWidth, width);
+            window.MinHeight = Math.Min(window.MinHeight, height);
+            window.Width = width;
+            window.Height = height;
+        }
+
         window.Show();
 
         double delaySeconds = 4;
-        string[] cliArgs = Environment.GetCommandLineArgs();
         for (int i = 0; i < cliArgs.Length - 1; i++)
         {
             if (cliArgs[i].Equals("--screenshot-delay", StringComparison.OrdinalIgnoreCase) &&

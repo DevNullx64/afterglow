@@ -7,8 +7,10 @@ namespace Afterglow.App.Controls;
 
 /// <summary>
 /// Lightweight custom-drawn time-series graph: line + soft area fill + faint
-/// gridlines and min/max labels. Push a new array to <see cref="Values"/> each
-/// tick; rendering is immediate-mode, no per-point visual tree.
+/// gridlines and, with <see cref="ShowScale"/>, a value axis whose range snaps
+/// outward to round numbers (gridlines land on them; labels sit in a left gutter
+/// so they never draw over the series). Push a new array to <see cref="Values"/>
+/// each tick; rendering is immediate-mode, no per-point visual tree.
 /// Optional second series (<see cref="Values2"/>) shares the scale, and
 /// <see cref="HoverEnabled"/> adds a crosshair that reads out the sample under
 /// the mouse — with its real age when <see cref="Times"/> carries the sample
@@ -77,10 +79,13 @@ public sealed class SparkGraph : FrameworkElement
     private static readonly Pen CrosshairPen = MakeFrozen(new Pen(CrosshairBrush, 1));
     private static readonly Typeface LabelTypeface = new("Segoe UI");
 
+    private const int MaxTicks = AxisScale.MaxTicks;
+    private const double GutterGap = 8;
+
     // Scale labels change only when the range does; re-shaping the same text
-    // every tick (twelve graphs, twice each) was pure waste.
-    private (string Text, double Dpi, FormattedText Formatted)? _maxLabel;
-    private (string Text, double Dpi, FormattedText Formatted)? _minLabel;
+    // every tick (a dozen graphs, several labels each) was pure waste.
+    private readonly (string Text, double Dpi, FormattedText Formatted)?[] _scaleLabels =
+        new (string, double, FormattedText)?[MaxTicks + 1];
 
     private Pen? _linePen;
     private Pen? _linePen2;
@@ -266,23 +271,46 @@ public sealed class SparkGraph : FrameworkElement
         }
         else if (double.IsNaN(FixedMin) && double.IsNaN(FixedMax))
         {
-            double pad = (max - min) * 0.08;
+            double pad = (max - min) * (ShowScale ? 0.04 : 0.08);
             min -= pad;
             max += pad;
         }
 
-        // Gridlines.
-        for (int g = 1; g <= 3; g++)
+        // A drawn scale snaps outward to round numbers; without one the range stays
+        // tight to the data (sparklines).
+        double tickStep = (max - min) / 4;
+        int tickCount = 4;
+        double plotLeft = 0;
+        double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        if (ShowScale)
         {
-            double y = height * g / 4.0;
-            dc.DrawLine(GridPen, new Point(0, y), new Point(width, y));
+            (min, max, tickStep) = AxisScale.Nice(min, max, FixedMin, FixedMax);
+            tickCount = Math.Clamp((int)Math.Round((max - min) / tickStep), 1, MaxTicks);
+            double widest = 0;
+            for (int t = 0; t <= tickCount; t++)
+            {
+                widest = Math.Max(widest, ScaleLabel(t, Format(min + (t * tickStep)), dpi).Width);
+            }
+
+            plotLeft = Math.Ceiling(widest + GutterGap);
+            if (plotLeft > width / 3)
+            {
+                plotLeft = 0;
+            }
+        }
+
+        // Inner gridlines; the card edge frames the outer two.
+        for (int g = 1; g < tickCount; g++)
+        {
+            double y = height * g / tickCount;
+            dc.DrawLine(GridPen, new Point(plotLeft, y), new Point(width, y));
         }
 
         EnsureBrushes();
 
         // Points are laid out so the newest sample is at the right edge and a full
-        // buffer spans the whole width.
-        double stepX = width / (capacity - 1);
+        // buffer spans the whole plot width.
+        double stepX = (width - plotLeft) / (capacity - 1);
 
         double MapY(double v) =>
             height - ((Math.Clamp(double.IsNaN(v) ? min : v, min, max) - min) / (max - min) * (height - 2)) - 1;
@@ -328,22 +356,27 @@ public sealed class SparkGraph : FrameworkElement
             DrawSeries(second, _linePen2, _fillBrush2!);
         }
 
-        if (ShowScale)
+        if (plotLeft > 0)
         {
-            double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-            dc.DrawText(CachedLabel(ref _maxLabel, Format(max), dpi), new Point(4, 2));
-            dc.DrawText(CachedLabel(ref _minLabel, Format(min), dpi), new Point(4, height - 15));
+            // Right-aligned in the gutter, centred on its gridline, kept inside the graph.
+            for (int t = 0; t <= tickCount; t++)
+            {
+                FormattedText label = ScaleLabel(t, Format(min + (t * tickStep)), dpi);
+                double y = height - (height * t / tickCount) - (label.Height / 2);
+                y = Math.Clamp(y, 0, height - label.Height);
+                dc.DrawText(label, new Point(plotLeft - GutterGap - label.Width, y));
+            }
         }
 
-        if (HoverEnabled && _hoverX is double hx)
+        if (HoverEnabled && _hoverX is double hx && hx >= plotLeft)
         {
-            DrawHover(dc, all, second, hx, width, height, stepX, count, offset, MapY);
+            DrawHover(dc, all, second, hx, plotLeft, width, height, stepX, count, offset, MapY);
         }
     }
 
     private void DrawHover(
         DrawingContext dc, IReadOnlyList<double> all, IReadOnlyList<double>? second,
-        double hx, double width, double height, double stepX, int count, int offset,
+        double hx, double plotLeft, double width, double height, double stepX, int count, int offset,
         Func<double, double> mapY)
     {
         double startX = width - ((count - 1) * stepX);
@@ -406,7 +439,7 @@ public sealed class SparkGraph : FrameworkElement
             px = snappedX - formatted.Width - 16;
         }
 
-        px = Math.Max(2, px);
+        px = Math.Max(plotLeft + 2, px);
         var pill = new Rect(px - 3, 4, formatted.Width + 12, formatted.Height + 6);
         dc.DrawRoundedRectangle(PillBrush, null, pill, 5, 5);
         dc.DrawText(formatted, new Point(px + 3, 7));
@@ -465,17 +498,16 @@ public sealed class SparkGraph : FrameworkElement
         return gradient;
     }
 
-    private static FormattedText CachedLabel(
-        ref (string Text, double Dpi, FormattedText Formatted)? cache, string text, double dpi)
+    private FormattedText ScaleLabel(int slot, string text, double dpi)
     {
-        if (cache is { } hit && hit.Text == text && hit.Dpi == dpi)
+        if (_scaleLabels[slot] is { } hit && hit.Text == text && hit.Dpi == dpi)
         {
             return hit.Formatted;
         }
 
         var formatted = new FormattedText(
-            text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, LabelTypeface, 10, LabelBrush, dpi);
-        cache = (text, dpi, formatted);
+            text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, LabelTypeface, 11, LabelBrush, dpi);
+        _scaleLabels[slot] = (text, dpi, formatted);
         return formatted;
     }
 

@@ -128,13 +128,13 @@ public partial class DashboardViewModel : ObservableObject, ILivePage
         switch (key)
         {
             case "clock":
-                ExpandedTitle = "CORE CLOCK — 10 MIN";
+                ExpandedTitle = "Core clock · last 10 min";
                 ExpandedUnit = "MHz";
                 ExpandedSeries = CoreClockSeries;
                 ExpandedStroke = SeriesBrush("SeriesClock");
                 break;
             case "temp":
-                ExpandedTitle = "TEMPERATURES — 10 MIN";
+                ExpandedTitle = "Temperatures · last 10 min";
                 ExpandedUnit = "°C";
                 ExpandedSeries = TempSeries;
                 ExpandedSeries2 = MemJunctionSeries;
@@ -142,17 +142,17 @@ public partial class DashboardViewModel : ObservableObject, ILivePage
                 ExpandedStroke2 = SeriesBrush("SeriesVram");
                 ExpandedLabel = "GPU";
                 ExpandedLabel2 = "mem";
-                ExpandedFixedMin = 25;
-                ExpandedFixedMax = 95;
+                ExpandedFixedMin = 20;
+                ExpandedFixedMax = 100;
                 break;
             case "power":
-                ExpandedTitle = "BOARD POWER — 10 MIN";
+                ExpandedTitle = "Board power · last 10 min";
                 ExpandedUnit = "W";
                 ExpandedSeries = PowerSeries;
                 ExpandedStroke = SeriesBrush("SeriesPower");
                 break;
             case "util":
-                ExpandedTitle = "GPU LOAD — 10 MIN";
+                ExpandedTitle = "GPU load · last 10 min";
                 ExpandedUnit = "%";
                 ExpandedSeries = UtilSeries;
                 ExpandedStroke = SeriesBrush("SeriesUtil");
@@ -160,14 +160,14 @@ public partial class DashboardViewModel : ObservableObject, ILivePage
                 ExpandedFixedMax = 100;
                 break;
             case "vram":
-                ExpandedTitle = "VRAM USED — 10 MIN";
+                ExpandedTitle = "VRAM used · last 10 min";
                 ExpandedUnit = "GB";
                 ExpandedSeries = VramSeries;
                 ExpandedStroke = SeriesBrush("SeriesVram");
                 ExpandedFixedMin = 0;
                 break;
             case "fan":
-                ExpandedTitle = "FAN DUTY — 10 MIN";
+                ExpandedTitle = "Fan duty · last 10 min";
                 ExpandedUnit = "%";
                 ExpandedSeries = FanSeries;
                 ExpandedStroke = SeriesBrush("SeriesFan");
@@ -175,13 +175,13 @@ public partial class DashboardViewModel : ObservableObject, ILivePage
                 ExpandedFixedMax = 100;
                 break;
             case "voltage":
-                ExpandedTitle = "CORE VOLTAGE — 10 MIN";
+                ExpandedTitle = "Core voltage · last 10 min";
                 ExpandedUnit = "mV";
                 ExpandedSeries = VoltageSeries;
                 ExpandedStroke = SeriesBrush("SeriesVoltage");
                 break;
             case "fps":
-                ExpandedTitle = "FRAMETIMES — LAST 360 FRAMES";
+                ExpandedTitle = "Frametimes · last 360 frames";
                 ExpandedUnit = "ms";
                 ExpandedSeries = FrametimeSeries;
                 ExpandedStroke = SeriesBrush("SeriesFps");

@@ -68,7 +68,7 @@ public sealed class VfCurveChart : FrameworkElement
     private readonly Dictionary<(string Text, double Size, Brush Brush), FormattedText> _labelCache = [];
     private double _labelCacheDpi;
 
-    private double _minV = 700, _maxV = 1200, _minF = 1000, _maxF = 3200;
+    private double _minV = 700, _maxV = 1200, _minF = 1000, _maxF = 3000, _fStep = 500;
     private Point? _hover;
 
     public IReadOnlyList<VfBin>? Curve
@@ -209,6 +209,9 @@ public sealed class VfCurveChart : FrameworkElement
             {
                 _maxF = _minF + 200;
             }
+
+            // Clock gridlines on round numbers, like the other graphs.
+            (_minF, _maxF, _fStep) = AxisScale.Nice(_minF, _maxF, double.NaN, double.NaN);
         }
 
         // X axis: the unit rides on the last tick's label instead of floating
@@ -230,9 +233,9 @@ public sealed class VfCurveChart : FrameworkElement
             dc.DrawText(formatted, new Point(Math.Max(2, x), r.Bottom + 5));
         }
 
-        for (int i = 0; i <= 4; i++)
+        double fStep = _fStep > 0 ? _fStep : (_maxF - _minF) / 4;
+        for (double f = _minF; f <= _maxF + 0.01; f += fStep)
         {
-            double f = _minF + ((_maxF - _minF) * i / 4);
             var p = ToScreen(_minV, f);
             dc.DrawLine(GridPen, new Point(r.X, p.Y), new Point(r.Right, p.Y));
             DrawLabel(dc, $"{f:F0}", new Point(4, p.Y - 7), 10);
