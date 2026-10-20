@@ -3,15 +3,18 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <IsPackable>false</IsPackable>
+    <!-- xUnit v3 test projects are executables (Microsoft.Testing.Platform, see global.json). -->
+    <OutputType>Exe</OutputType>
+    <!-- LibraryImport stubs (CommandLineTests calls the real Windows argv parser). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Underscore-separated test names are the xUnit naming convention. -->
     <NoWarn>$(NoWarn);CA1707</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
   </ItemGroup>
 
   <ItemGroup>
@@ -20,6 +23,16 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Afterglow.Core\Afterglow.Core.csproj" />
+    <!-- The CLI's internals (argument parsing, verdict rules) are tested in-process; no
+         test calls a command's Run, which would open the GPU. -->
+    <ProjectReference Include="..\..\src\Afterglow.Cli\Afterglow.Cli.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The window-effects version gate is pure C# inside the WPF app; compile that one
+         file in (WindowEffectsPlanTests) instead of referencing the WinExe. -->
+    <Compile Include="..\..\src\Afterglow.App\Shell\WindowEffectsPlan.cs" Link="Shell\WindowEffectsPlan.cs" />
+    <Compile Include="..\..\src\Afterglow.App\Controls\AxisScale.cs" Link="Controls\AxisScale.cs" />
   </ItemGroup>
 
 </Project>

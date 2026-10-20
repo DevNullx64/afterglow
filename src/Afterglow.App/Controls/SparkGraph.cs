@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -7,8 +7,10 @@ namespace Afterglow.App.Controls;
 
 /// <summary>
 /// Lightweight custom-drawn time-series graph: line + soft area fill + faint
-/// gridlines and min/max labels. Push a new array to <see cref="Values"/> each
-/// tick; rendering is immediate-mode, no per-point visual tree.
+/// gridlines and, with <see cref="ShowScale"/>, a value axis whose range snaps
+/// outward to round numbers (gridlines land on them; labels sit in a left gutter
+/// so they never draw over the series). Push a new array to <see cref="Values"/>
+/// each tick; rendering is immediate-mode, no per-point visual tree.
 /// Optional second series (<see cref="Values2"/>) shares the scale, and
 /// <see cref="HoverEnabled"/> adds a crosshair that reads out the sample under
 /// the mouse — with its real age when <see cref="Times"/> carries the sample
@@ -73,7 +75,17 @@ public sealed class SparkGraph : FrameworkElement
     private static readonly Brush CrosshairBrush = MakeFrozen(new SolidColorBrush(Color.FromArgb(80, 255, 255, 255)));
     private static readonly Brush PillBrush = MakeFrozen(new SolidColorBrush(Color.FromArgb(216, 12, 15, 20)));
     private static readonly Brush PillTextBrush = MakeFrozen(new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)));
+    private static readonly Pen GridPen = MakeFrozen(new Pen(GridBrush, 1));
+    private static readonly Pen CrosshairPen = MakeFrozen(new Pen(CrosshairBrush, 1));
     private static readonly Typeface LabelTypeface = new("Segoe UI");
+
+    private const int MaxTicks = AxisScale.MaxTicks;
+    private const double GutterGap = 8;
+
+    // Scale labels change only when the range does; re-shaping the same text
+    // every tick (a dozen graphs, several labels each) was pure waste.
+    private readonly (string Text, double Dpi, FormattedText Formatted)?[] _scaleLabels =
+        new (string, double, FormattedText)?[MaxTicks + 1];
 
     private Pen? _linePen;
     private Pen? _linePen2;
@@ -180,10 +192,11 @@ public sealed class SparkGraph : FrameworkElement
         graph._fillBrush2 = null;
     }
 
-    private static Brush MakeFrozen(Brush brush)
+    private static T MakeFrozen<T>(T freezable)
+        where T : Freezable
     {
-        brush.Freeze();
-        return brush;
+        freezable.Freeze();
+        return freezable;
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
@@ -258,27 +271,61 @@ public sealed class SparkGraph : FrameworkElement
         }
         else if (double.IsNaN(FixedMin) && double.IsNaN(FixedMax))
         {
-            double pad = (max - min) * 0.08;
+            double pad = (max - min) * (ShowScale ? 0.04 : 0.08);
             min -= pad;
             max += pad;
         }
 
-        // Gridlines.
-        for (int g = 1; g <= 3; g++)
+        // A drawn scale snaps outward to round numbers; without one the range stays
+        // tight to the data (sparklines).
+        double tickStep = (max - min) / 4;
+        int tickCount = 4;
+        double plotLeft = 0;
+        double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        if (ShowScale)
         {
-            double y = height * g / 4.0;
-            dc.DrawLine(new Pen(GridBrush, 1), new Point(0, y), new Point(width, y));
+            (min, max, tickStep) = AxisScale.Nice(min, max, FixedMin, FixedMax);
+            if (!double.IsFinite(tickStep) || tickStep <= 0)
+            {
+                tickStep = (max - min) / 4;
+            }
+
+            tickCount = Math.Clamp((int)Math.Round((max - min) / tickStep), 1, MaxTicks);
+            double widest = 0;
+            for (int t = 0; t <= tickCount; t++)
+            {
+                widest = Math.Max(widest, ScaleLabel(t, FormatTick(min + (t * tickStep), tickStep), dpi).Width);
+            }
+
+            plotLeft = Math.Ceiling(widest + GutterGap);
+            if (plotLeft > width / 3)
+            {
+                plotLeft = 0;
+            }
+        }
+
+        // Inner gridlines; the card edge frames the outer two.
+        for (int g = 1; g < tickCount; g++)
+        {
+            double y = height * g / tickCount;
+            dc.DrawLine(GridPen, new Point(plotLeft, y), new Point(width, y));
         }
 
         EnsureBrushes();
 
         // Points are laid out so the newest sample is at the right edge and a full
-        // buffer spans the whole width.
-        double stepX = width / (capacity - 1);
+        // buffer spans the whole plot width.
+        double stepX = (width - plotLeft) / (capacity - 1);
 
         double MapY(double v) =>
-            height - ((Math.Clamp(double.IsNaN(v) ? min : v, min, max) - min) / (max - min) * (height - 2)) - 1;
+            height - ((Math.Clamp(v, min, max) - min) / (max - min) * (height - 2)) - 1;
 
+        // A missing sample is a gap in the line, not a reading at the bottom of
+        // the scale. Substituting `min` for NaN drew a solid, filled line pinned
+        // to the axis floor — on a card with no memory-junction sensor that was a
+        // convincing flat "25 °C" trace across the whole window, for a sensor
+        // that does not exist. The hover readout already said "—" for the same
+        // points, so the drawn line was the only surface that lied.
         void DrawSeries(IReadOnlyList<double> series, Pen pen, Brush fill)
         {
             int n = Math.Min(series.Count, capacity);
@@ -291,21 +338,75 @@ public sealed class SparkGraph : FrameworkElement
             double sx = width - ((n - 1) * stepX);
             var lineGeometry = new StreamGeometry();
             var fillGeometry = new StreamGeometry();
+            bool drewAnything = false;
             using (var line = lineGeometry.Open())
             using (var fill2 = fillGeometry.Open())
             {
-                var p0 = new Point(sx, MapY(series[off]));
-                line.BeginFigure(p0, false, false);
-                fill2.BeginFigure(new Point(p0.X, height), true, true);
-                fill2.LineTo(p0, false, false);
-                for (int i = 1; i < n; i++)
+                bool open = false;
+                var runStart = default(Point);
+                int runLength = 0;
+
+                // A figure with no segments strokes nothing — round caps do not
+                // change that — so an isolated valid sample between two dropped
+                // polls would vanish from the trace while the hover readout still
+                // showed its value. Closing a one-sample run with a zero-length
+                // segment gives the round cap something to draw: a dot.
+                void CloseRun(int lastIndex)
                 {
-                    var p = new Point(sx + (i * stepX), MapY(series[off + i]));
-                    line.LineTo(p, true, false);
-                    fill2.LineTo(p, false, false);
+                    if (!open)
+                    {
+                        return;
+                    }
+
+                    if (runLength == 1)
+                    {
+                        line.LineTo(runStart, true, false);
+                    }
+
+                    fill2.LineTo(new Point(sx + (lastIndex * stepX), height), false, false);
+                    open = false;
+                    runLength = 0;
                 }
 
-                fill2.LineTo(new Point(width, height), false, false);
+                for (int i = 0; i < n; i++)
+                {
+                    double value = series[off + i];
+                    if (double.IsNaN(value))
+                    {
+                        CloseRun(i - 1);
+                        continue;
+                    }
+
+                    var p = new Point(sx + (i * stepX), MapY(value));
+                    if (!open)
+                    {
+                        line.BeginFigure(p, false, false);
+                        fill2.BeginFigure(new Point(p.X, height), true, true);
+                        fill2.LineTo(p, false, false);
+                        open = true;
+                        drewAnything = true;
+                        runStart = p;
+                        runLength = 1;
+                    }
+                    else
+                    {
+                        line.LineTo(p, true, false);
+                        fill2.LineTo(p, false, false);
+                        runLength++;
+                    }
+
+                    if (i == n - 1)
+                    {
+                        CloseRun(i);
+                    }
+                }
+            }
+
+            // Every sample in the window was missing: draw nothing at all rather
+            // than an empty-looking baseline.
+            if (!drewAnything)
+            {
+                return;
             }
 
             lineGeometry.Freeze();
@@ -320,21 +421,27 @@ public sealed class SparkGraph : FrameworkElement
             DrawSeries(second, _linePen2, _fillBrush2!);
         }
 
-        if (ShowScale)
+        if (plotLeft > 0)
         {
-            DrawLabel(dc, Format(max), new Point(4, 2));
-            DrawLabel(dc, Format(min), new Point(4, height - 15));
+            // Right-aligned in the gutter, centred on its gridline, kept inside the graph.
+            for (int t = 0; t <= tickCount; t++)
+            {
+                FormattedText label = ScaleLabel(t, FormatTick(min + (t * tickStep), tickStep), dpi);
+                double y = height - (height * t / tickCount) - (label.Height / 2);
+                y = Math.Clamp(y, 0, height - label.Height);
+                dc.DrawText(label, new Point(plotLeft - GutterGap - label.Width, y));
+            }
         }
 
-        if (HoverEnabled && _hoverX is double hx)
+        if (HoverEnabled && _hoverX is double hx && hx >= plotLeft)
         {
-            DrawHover(dc, all, second, hx, width, height, stepX, count, offset, MapY);
+            DrawHover(dc, all, second, hx, plotLeft, width, height, stepX, count, offset, MapY);
         }
     }
 
     private void DrawHover(
         DrawingContext dc, IReadOnlyList<double> all, IReadOnlyList<double>? second,
-        double hx, double width, double height, double stepX, int count, int offset,
+        double hx, double plotLeft, double width, double height, double stepX, int count, int offset,
         Func<double, double> mapY)
     {
         double startX = width - ((count - 1) * stepX);
@@ -343,7 +450,7 @@ public sealed class SparkGraph : FrameworkElement
         int absIdx = offset + i;
         double snappedX = startX + (i * stepX);
 
-        dc.DrawLine(new Pen(CrosshairBrush, 1), new Point(snappedX, 0), new Point(snappedX, height));
+        dc.DrawLine(CrosshairPen, new Point(snappedX, 0), new Point(snappedX, height));
 
         double v1 = all[absIdx];
         if (!double.IsNaN(v1))
@@ -397,7 +504,7 @@ public sealed class SparkGraph : FrameworkElement
             px = snappedX - formatted.Width - 16;
         }
 
-        px = Math.Max(2, px);
+        px = Math.Max(plotLeft + 2, px);
         var pill = new Rect(px - 3, 4, formatted.Width + 12, formatted.Height + 6);
         dc.DrawRoundedRectangle(PillBrush, null, pill, 5, 5);
         dc.DrawText(formatted, new Point(px + 3, 7));
@@ -424,7 +531,7 @@ public sealed class SparkGraph : FrameworkElement
     {
         if (_linePen is null)
         {
-            _linePen = new Pen(Stroke, 1.6) { LineJoin = PenLineJoin.Round };
+            _linePen = new Pen(Stroke, 1.6) { LineJoin = PenLineJoin.Round, StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
             _linePen.Freeze();
         }
 
@@ -437,7 +544,7 @@ public sealed class SparkGraph : FrameworkElement
         {
             if (_linePen2 is null)
             {
-                _linePen2 = new Pen(stroke2, 1.6) { LineJoin = PenLineJoin.Round };
+                _linePen2 = new Pen(stroke2, 1.6) { LineJoin = PenLineJoin.Round, StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
                 _linePen2.Freeze();
             }
 
@@ -456,12 +563,30 @@ public sealed class SparkGraph : FrameworkElement
         return gradient;
     }
 
-    private void DrawLabel(DrawingContext dc, string text, Point at)
+    private FormattedText ScaleLabel(int slot, string text, double dpi)
     {
+        if (_scaleLabels[slot] is { } hit && hit.Text == text && hit.Dpi == dpi)
+        {
+            return hit.Formatted;
+        }
+
         var formatted = new FormattedText(
-            text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, LabelTypeface, 10, LabelBrush,
-            VisualTreeHelper.GetDpi(this).PixelsPerDip);
-        dc.DrawText(formatted, at);
+            text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, LabelTypeface, 11, LabelBrush, dpi);
+        _scaleLabels[slot] = (text, dpi, formatted);
+        return formatted;
+    }
+
+    /// <summary>An axis label with exactly the decimals its step needs (0.25 steps: two).</summary>
+    private static string FormatTick(double value, double step)
+    {
+        int decimals = 0;
+        while (decimals < 4 && Math.Abs((step * Math.Pow(10, decimals)) - Math.Round(step * Math.Pow(10, decimals))) > 1e-9)
+        {
+            decimals++;
+        }
+
+        string pattern = decimals == 0 ? "#,##0" : "#,##0." + new string('#', decimals);
+        return value.ToString(pattern, CultureInfo.InvariantCulture);
     }
 
     private static string Format(double value) =>

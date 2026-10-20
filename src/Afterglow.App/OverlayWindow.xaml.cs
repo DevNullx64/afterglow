@@ -22,16 +22,19 @@ public partial class OverlayWindow : Window
     private const nint WsExNoActivate = 0x08000000;
     private const nint WsExToolWindow = 0x80;
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern nint GetWindowLongPtrW(nint hwnd, int index);
+    [LibraryImport("user32.dll", SetLastError = true)]
+    private static partial nint GetWindowLongPtrW(nint hwnd, int index);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern nint SetWindowLongPtrW(nint hwnd, int index, nint value);
+    [LibraryImport("user32.dll", SetLastError = true)]
+    private static partial nint SetWindowLongPtrW(nint hwnd, int index, nint value);
 
     private readonly AppServices _services;
     private readonly DispatcherTimer _timer;
     private OverlaySettings _settings;
     private uint _deviceIndex;
+
+    // The sensor block changes once per telemetry tick; the 500 ms timer is for FPS.
+    private GpuSnapshot? _shownSnapshot;
 
     public OverlayWindow(AppServices services, OverlaySettings settings)
     {
@@ -39,7 +42,7 @@ public partial class OverlayWindow : Window
         _services = services;
         _settings = settings;
         _deviceIndex = services.SelectedGpu?.Index ?? 0;
-        services.SelectedGpuChanged += gpu => _deviceIndex = gpu.Index;
+        services.SelectedGpuChanged += OnSelectedGpuChanged;
 
         Opacity = settings.Opacity;
         SourceInitialized += (_, _) => MakeClickThrough();
@@ -47,13 +50,30 @@ public partial class OverlayWindow : Window
         _timer.Tick += (_, _) => Refresh();
         _timer.Start();
         Loaded += (_, _) => Reposition();
+
+        // Rows appearing or vanishing resize the window after layout, which is
+        // when ActualWidth/Height are current — a right- or bottom-anchored
+        // overlay follows its size from here rather than from a stale guess.
+        SizeChanged += (_, _) => Reposition();
     }
 
+    private void OnSelectedGpuChanged(Core.Hardware.GpuContext gpu)
+    {
+        _deviceIndex = gpu.Index;
+        _shownSnapshot = null;
+    }
+
+    /// <summary>Takes effect immediately on an open overlay (rows, corner, opacity).</summary>
     public void ApplySettings(OverlaySettings settings)
     {
         _settings = settings;
+        _shownSnapshot = null;
         Opacity = settings.Opacity;
-        Reposition();
+        Refresh();
+        if (IsLoaded)
+        {
+            Reposition();
+        }
     }
 
     private void MakeClickThrough()
@@ -99,9 +119,11 @@ public partial class OverlayWindow : Window
             ? Visibility.Visible
             : Visibility.Collapsed;
 
-        if (showFps)
+        // Pattern-matched rather than null-forgiven: the compiler proves the
+        // value is there instead of us asserting it across two statements.
+        if (showFps && stats is { } current)
         {
-            var (app, s) = stats!.Value;
+            var (app, s) = current;
             FpsRow.Text = $"{s.AverageFps:F0} FPS  {app.Application}";
             LowsRow.Text = $"1% {s.Low1Fps:F0}   0.1% {s.Low01Fps:F0}   {s.AverageFrametimeMs:F1} ms";
             if (_settings.ShowFrametimeGraph)
@@ -110,8 +132,18 @@ public partial class OverlayWindow : Window
             }
         }
 
-        // Sensor block
-        var snapshot = _services.Telemetry.HistoryFor(_deviceIndex).Latest;
+        // Sensor block — rebuilt only when a new snapshot has arrived.
+        var snapshot = _services.Telemetry.TryHistoryFor(_deviceIndex)?.Latest;
+        if (!ReferenceEquals(snapshot, _shownSnapshot))
+        {
+            _shownSnapshot = snapshot;
+            RefreshSensors(snapshot);
+        }
+
+    }
+
+    private void RefreshSensors(GpuSnapshot? snapshot)
+    {
         var sb = new StringBuilder();
         if (snapshot is not null)
         {
@@ -161,16 +193,15 @@ public partial class OverlayWindow : Window
         }
 
         ThrottleRow.Visibility = ThrottleRow.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-
-        if (IsLoaded)
-        {
-            Reposition();
-        }
     }
 
     protected override void OnClosed(EventArgs e)
     {
         _timer.Stop();
+
+        // The services outlive every overlay instance; a lingering handler kept
+        // each closed overlay (and its timer target) alive (F-28).
+        _services.SelectedGpuChanged -= OnSelectedGpuChanged;
         base.OnClosed(e);
     }
 }

@@ -7,35 +7,61 @@ using Afterglow.Core.Telemetry;
 
 namespace Afterglow.App.ViewModels;
 
-public partial class SettingsViewModel : ObservableObject
+public partial class SettingsViewModel : ObservableObject, ILivePage
 {
     private readonly AppServices _services;
     private bool _loading;
+    private volatile bool _isLive;
+
+    /// <summary>
+    /// The Settings page carries no per-tick telemetry, but it is in
+    /// MainViewModel's live-page set, so this is the one hook that fires when
+    /// the user navigates onto the page. The startup-profile pickers are
+    /// rebuilt from disk on that transition, so a profile saved or deleted
+    /// elsewhere in the session actually appears / disappears (F-74).
+    /// </summary>
+    public bool IsLive
+    {
+        get => _isLive;
+        set
+        {
+            if (_isLive == value)
+            {
+                return;
+            }
+
+            _isLive = value;
+            if (value)
+            {
+                RefreshStartupProfileOptions();
+            }
+        }
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(PollingLabel))]
-    private double _pollingIntervalMs;
+    public partial double PollingIntervalMs { get; set; }
 
-    [ObservableProperty] private bool _csvLoggingEnabled;
-    [ObservableProperty] private string _csvStatusText = string.Empty;
+    [ObservableProperty] public partial bool CsvLoggingEnabled { get; set; }
+    [ObservableProperty] public partial string CsvStatusText { get; set; } = string.Empty;
 
-    [ObservableProperty] private bool _closeToTray;
-    [ObservableProperty] private bool _startMinimizedToTray;
-    [ObservableProperty] private bool _resetOnDriverCrash;
-    [ObservableProperty] private bool _updateCheckEnabled;
-    [ObservableProperty] private string _updateStatusText = string.Empty;
+    [ObservableProperty] public partial bool CloseToTray { get; set; }
+    [ObservableProperty] public partial bool StartMinimizedToTray { get; set; }
+    [ObservableProperty] public partial bool ResetOnDriverCrash { get; set; }
+    [ObservableProperty] public partial bool UpdateCheckEnabled { get; set; }
+    [ObservableProperty] public partial string UpdateStatusText { get; set; } = string.Empty;
 
-    [ObservableProperty] private bool _startWithWindows;
-    [ObservableProperty] private string _startWithWindowsNote = string.Empty;
+    [ObservableProperty] public partial bool StartWithWindows { get; set; }
+    [ObservableProperty] public partial string StartWithWindowsNote { get; set; } = string.Empty;
 
     public System.Collections.ObjectModel.ObservableCollection<AutomationRule> AutomationRules { get; } = [];
 
-    [ObservableProperty] private int _newAutoMetricIndex;
-    [ObservableProperty] private string _newAutoThreshold = "94";
-    [ObservableProperty] private string _newAutoSeconds = "30";
-    [ObservableProperty] private int _newAutoActionIndex;
-    [ObservableProperty] private string _newAutoFanPct = "85";
-    [ObservableProperty] private string _newAutoProfile = string.Empty;
+    [ObservableProperty] public partial int NewAutoMetricIndex { get; set; }
+    [ObservableProperty] public partial string NewAutoThreshold { get; set; } = "94";
+    [ObservableProperty] public partial string NewAutoSeconds { get; set; } = "30";
+    [ObservableProperty] public partial int NewAutoActionIndex { get; set; }
+    [ObservableProperty] public partial string NewAutoFanPct { get; set; } = "85";
+    [ObservableProperty] public partial string NewAutoProfile { get; set; } = string.Empty;
 
     /// <summary>The fan-% box only applies to the fan action; the profile picker only to the profile action.</summary>
     public bool NewAutoActionIsFans => NewAutoActionIndex == 0;
@@ -97,26 +123,26 @@ public partial class SettingsViewModel : ObservableObject
         _services.UpdateSettings(s => s with { AutomationRules = rules });
     }
 
-    [ObservableProperty] private double _alertGpuTemp;
-    [ObservableProperty] private double _alertMemTemp;
+    [ObservableProperty] public partial double AlertGpuTemp { get; set; }
+    [ObservableProperty] public partial double AlertMemTemp { get; set; }
 
     /// <summary>"(none)" + saved profile names for the startup-apply picker.</summary>
     public System.Collections.ObjectModel.ObservableCollection<string> StartupProfileOptions { get; } = [];
 
-    [ObservableProperty] private string _selectedStartupProfile = "(none)";
+    [ObservableProperty] public partial string SelectedStartupProfile { get; set; } = "(none)";
 
-    [ObservableProperty] private string _startupProfileNote = string.Empty;
+    [ObservableProperty] public partial string StartupProfileNote { get; set; } = string.Empty;
 
     // Overlay
-    [ObservableProperty] private int _overlayCornerIndex;
-    [ObservableProperty] private double _overlayOpacity;
-    [ObservableProperty] private bool _overlayShowFps;
-    [ObservableProperty] private bool _overlayShowGraph;
-    [ObservableProperty] private bool _overlayShowTemp;
-    [ObservableProperty] private bool _overlayShowPower;
-    [ObservableProperty] private bool _overlayShowClock;
-    [ObservableProperty] private bool _overlayShowVram;
-    [ObservableProperty] private bool _overlayShowFan;
+    [ObservableProperty] public partial int OverlayCornerIndex { get; set; }
+    [ObservableProperty] public partial double OverlayOpacity { get; set; }
+    [ObservableProperty] public partial bool OverlayShowFps { get; set; }
+    [ObservableProperty] public partial bool OverlayShowGraph { get; set; }
+    [ObservableProperty] public partial bool OverlayShowTemp { get; set; }
+    [ObservableProperty] public partial bool OverlayShowPower { get; set; }
+    [ObservableProperty] public partial bool OverlayShowClock { get; set; }
+    [ObservableProperty] public partial bool OverlayShowVram { get; set; }
+    [ObservableProperty] public partial bool OverlayShowFan { get; set; }
 
     public string PollingLabel => $"{PollingIntervalMs:F0} ms";
 
@@ -124,12 +150,11 @@ public partial class SettingsViewModel : ObservableObject
 
     public string AlertMemLabel => AlertMemTemp < 50 ? "off" : $"{AlertMemTemp:F0} °C";
 
-    public string HotkeysText { get; } =
-        "Global hotkeys:  Ctrl+Alt+O toggle overlay · Ctrl+Alt+R panic reset to defaults · " +
-        "Ctrl+Alt+1…5 apply saved profile 1…5 (alphabetical)";
-
+    // The full informational version so a beta identifies itself as such — the
+    // numeric AssemblyVersion drops the "-beta.N" suffix and reported a beta as
+    // plain "1.2.0" (F-46).
     public string AboutText { get; } =
-        $"Afterglow {typeof(SettingsViewModel).Assembly.GetName().Version?.ToString(3) ?? "dev"} — " +
+        $"Afterglow {Core.Services.UpdateChecker.DisplayVersion} — " +
         "open-source tuning and monitoring for NVIDIA RTX GPUs. MIT licensed. " +
         "No kernel drivers, no telemetry, no accounts.";
 
@@ -142,14 +167,38 @@ public partial class SettingsViewModel : ObservableObject
         LoadFrom(services.Settings);
     }
 
-    /// <summary>Repopulates the startup-profile picker (called on page navigation too).</summary>
+    /// <summary>
+    /// Repopulates the startup-profile picker (and, since it shares the same
+    /// collection, the automation-rule profile picker) from disk. Runs at
+    /// construction and on every navigation onto the page (see <see cref="IsLive"/>).
+    /// The current selection is preserved when its profile still exists; if the
+    /// chosen profile was deleted, the picker falls back to "(none)" and the
+    /// persisted startup setting is cleared so startup no longer points at a
+    /// profile that is gone.
+    /// </summary>
     public void RefreshStartupProfileOptions()
     {
+        string previous = SelectedStartupProfile;
+
+        _loading = true;
         StartupProfileOptions.Clear();
         StartupProfileOptions.Add("(none)");
         foreach (var profile in _services.Profiles.LoadAll())
         {
             StartupProfileOptions.Add(profile.Name);
+        }
+
+        bool stillExists = StartupProfileOptions.Contains(previous);
+        SelectedStartupProfile = stillExists ? previous : "(none)";
+        _loading = false;
+
+        if (!stillExists && previous != "(none)")
+        {
+            // The selected profile was deleted this session: drop the dead
+            // reference so RestoreStartupState doesn't tray-alert about a
+            // "no longer exists" profile at the next launch.
+            StartupProfileNote = string.Empty;
+            _services.UpdateSettings(s => s with { ApplyProfileOnStart = null });
         }
     }
 
@@ -159,6 +208,9 @@ public partial class SettingsViewModel : ObservableObject
         {
             return;
         }
+
+        // The user answered before the background query did; theirs wins.
+        _startupTaskQueryPending = false;
 
         if (!_services.IsElevated)
         {
@@ -224,19 +276,7 @@ public partial class SettingsViewModel : ObservableObject
     {
         _loading = true;
         PollingIntervalMs = s.PollingIntervalMs;
-        StartWithWindows = Services.StartupTaskService.IsEnabled();
-
-        // A task registered before the location check existed (or from a copy
-        // that has since moved) keeps running elevated at every logon. Say so:
-        // the toggle only reports that a task exists, not that it is safe.
-        if (StartWithWindows && Environment.ProcessPath is { } exe &&
-            Core.Security.TrustedInstallLocation.Check(exe) is { IsTrusted: false } untrusted)
-        {
-            StartWithWindowsNote =
-                $"This startup task runs Afterglow elevated with no prompt from a location that is not " +
-                $"administrator-only: {untrusted.Reason}. Anything able to replace the exe would inherit those " +
-                "rights at logon. Turn this off, or reinstall into Program Files with the setup .exe.";
-        }
+        _ = LoadStartupTaskStateAsync();
         AutomationRules.Clear();
         foreach (var rule in s.AutomationRules)
         {
@@ -263,6 +303,51 @@ public partial class SettingsViewModel : ObservableObject
             : "(none)";
         _loading = false;
     }
+
+    /// <summary>
+    /// Whether the logon task exists takes a schtasks.exe round trip, and the
+    /// location check walks the ACL of every folder above the exe — together a
+    /// few hundred milliseconds that used to sit on the UI thread at every
+    /// launch, for a page that is rarely opened. Both now run in the
+    /// background; the toggle shows "off" until the answer arrives, and an
+    /// answer that lands after the user already flipped the toggle is dropped.
+    /// </summary>
+    private async Task LoadStartupTaskStateAsync()
+    {
+        _startupTaskQueryPending = true;
+        var (enabled, note) = await Task.Run(() =>
+        {
+            bool exists = Services.StartupTaskService.IsEnabled();
+
+            // A task registered before the location check existed (or from a copy
+            // that has since moved) keeps running elevated at every logon. Say so:
+            // the toggle only reports that a task exists, not that it is safe.
+            // Judge the exe the TASK launches — the running one may be a dev
+            // build or a second copy, which says nothing about the logon binary.
+            string? taskExe = exists ? Services.StartupTaskService.RegisteredExecutable() : null;
+            string? warning = taskExe is not null &&
+                              Core.Security.TrustedInstallLocation.Check(taskExe) is { IsTrusted: false } untrusted
+                ? $"This startup task runs Afterglow elevated with no prompt from a location that is not " +
+                  $"administrator-only: {untrusted.Reason}. Anything able to replace the exe would inherit those " +
+                  "rights at logon. Turn this off, or reinstall into Program Files with the setup .exe."
+                : null;
+            return (exists, warning);
+        }).ConfigureAwait(true);
+
+        if (!_startupTaskQueryPending)
+        {
+            return;
+        }
+
+        _startupTaskQueryPending = false;
+        RevertStartWithWindows(enabled);
+        if (note is not null)
+        {
+            StartWithWindowsNote = note;
+        }
+    }
+
+    private bool _startupTaskQueryPending;
 
     private void Persist()
     {
@@ -313,11 +398,14 @@ public partial class SettingsViewModel : ObservableObject
         UpdateStatusText = "Checking…";
         var current = Core.Services.UpdateChecker.CurrentVersion ?? new Version(0, 0, 0);
         var result = await Core.Services.UpdateChecker.CheckAsync(current);
+        // Display the real running version (prerelease and all), so a beta
+        // tester is never told "up to date (v1.2.0)" while on v1.2.0-beta.3 (F-46/F-65).
+        string running = Core.Services.UpdateChecker.DisplayVersion;
         UpdateStatusText = result is null
-            ? "Check failed — no connection, or GitHub rate-limited the request. Nothing was retried."
+            ? "Check failed — no connection, GitHub rate-limited the request, or its answer couldn't be read. Nothing was retried."
             : result.UpdateAvailable
-                ? $"{result.LatestTag} is available (you're on v{current.ToString(3)}) — use the Releases page button."
-                : $"Up to date (v{current.ToString(3)}).";
+                ? $"{result.LatestTag} is available (you're on v{running}) — use the Releases page button."
+                : $"Up to date (v{running}).";
     }
 
     [RelayCommand]
@@ -364,14 +452,32 @@ public partial class SettingsViewModel : ObservableObject
         if (value)
         {
             var logger = new CsvLogger();
-            logger.Start();
+            try
+            {
+                logger.Start();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // e.g. an unelevated instance after an elevated run locked the data
+                // folder down. Say so and put the toggle back — WPF swallows an
+                // exception from a binding setter, which used to leave the switch
+                // on with nothing being logged.
+                logger.Dispose();
+                CsvStatusText = $"Could not start the CSV log: {ex.Message}" +
+                                (_services.IsElevated ? string.Empty : " (Afterglow is running without administrator rights.)");
+                _ = System.Windows.Application.Current?.Dispatcher.BeginInvoke(() => CsvLoggingEnabled = false);
+                return;
+            }
+
             _services.ActiveCsvLogger = logger;
+            _services.SetExtendedMetrics(true);
             _services.Telemetry.SnapshotTaken += logger.Log;
             CsvStatusText = $"Logging to {logger.CurrentFile}";
         }
         else if (_services.ActiveCsvLogger is { } active)
         {
             _services.Telemetry.SnapshotTaken -= active.Log;
+            _services.SetExtendedMetrics(false);
             active.Dispose();
             _services.ActiveCsvLogger = null;
             CsvStatusText = "Logging stopped.";
@@ -384,9 +490,13 @@ public partial class SettingsViewModel : ObservableObject
         try
         {
             AppPaths.EnsureCreated();
-            _ = System.Diagnostics.Process.Start("explorer.exe", AppPaths.Root);
+            // Full path: this process is usually elevated, and a bare name is
+            // searched for in the app's own folder before System32.
+            _ = System.Diagnostics.Process.Start(
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
+                Core.CommandLine.Join([AppPaths.Root]));
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
         {
             CsvStatusText = $"Could not open folder: {ex.Message}";
         }

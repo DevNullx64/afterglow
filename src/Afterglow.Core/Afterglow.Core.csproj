@@ -8,9 +8,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.11" />
-    <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
-    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="System.Diagnostics.EventLog" />
+    <PackageReference Include="Vortice.D3DCompiler" />
+    <PackageReference Include="Vortice.Direct3D11" />
   </ItemGroup>
 
   <ItemGroup>

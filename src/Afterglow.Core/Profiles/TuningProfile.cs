@@ -54,7 +54,14 @@ public sealed record TuningProfile
     /// <summary>Curve used when <see cref="FanMode.Curve"/>.</summary>
     public FanCurveConfig? FanCurve { get; init; }
 
-    /// <summary>Per-point V/F curve offsets (MHz), keyed by curve point index; empty when unused.</summary>
+    /// <summary>
+    /// Per-point V/F curve offsets (MHz), keyed by raw table slot; null when the
+    /// table held nothing beyond the global core offset. When present it is the
+    /// WHOLE live table, explicit zeros included — apply writes only the slots
+    /// listed here, so a missing slot would keep whatever the table holds at
+    /// apply time instead of the value that was saved (see
+    /// <see cref="Tuning.VfPointPlanner.CaptureForProfile"/>).
+    /// </summary>
     public IReadOnlyDictionary<int, int>? VfPointOffsetsMHz { get; init; }
 
     /// <summary>
@@ -114,8 +121,13 @@ public sealed record TuningProfile
     /// <summary>A profile that changes nothing (driver defaults).</summary>
     public static TuningProfile Defaults { get; } = new() { Name = "Defaults" };
 
-    /// <summary>Returns a human-readable validation error, or null when the profile is sane.</summary>
-    public string? Validate()
+    /// <summary>
+    /// Returns a human-readable validation error, or null when the profile is
+    /// sane. The defaults are the NVIDIA-era static bounds; callers that know
+    /// their device's driver-reported floors pass them (Intel frequency
+    /// domains clamp down to 100 MHz, far below NVML's 210 MHz lock floor).
+    /// </summary>
+    public string? Validate(uint lockFloorMHz = 210, double powerFloorW = 50)
     {
         if (string.IsNullOrWhiteSpace(Name))
         {
@@ -134,9 +146,9 @@ public sealed record TuningProfile
             return "Memory offset outside -4000..+6000 MHz.";
         }
 
-        if (PowerLimitW is < 50 or > 2000)
+        if (PowerLimitW < powerFloorW || PowerLimitW > 2000)
         {
-            return "Power limit outside 50..2000 W.";
+            return $"Power limit outside {powerFloorW:F0}..2000 W.";
         }
 
         if (TempLimitC is < 60 or > 100)
@@ -144,9 +156,9 @@ public sealed record TuningProfile
             return "Temperature limit outside 60..100 °C.";
         }
 
-        if (LockedCoreClockMHz is < 210 or > 4500)
+        if (LockedCoreClockMHz < lockFloorMHz || LockedCoreClockMHz > 4500)
         {
-            return "Locked clock outside 210..4500 MHz.";
+            return $"Locked clock outside {lockFloorMHz}..4500 MHz.";
         }
 
         if (VoltageBoostPct is > 100)

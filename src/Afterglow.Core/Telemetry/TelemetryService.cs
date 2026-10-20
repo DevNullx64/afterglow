@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
 namespace Afterglow.Core.Telemetry;
 
@@ -9,7 +9,7 @@ namespace Afterglow.Core.Telemetry;
 public sealed class SnapshotHistory
 {
     private readonly GpuSnapshot?[] _buffer;
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private int _next;
     private int _count;
     private GpuSnapshot? _latest;
@@ -43,13 +43,21 @@ public sealed class SnapshotHistory
     }
 
     /// <summary>Snapshots in chronological order (oldest first).</summary>
-    public GpuSnapshot[] GetAll()
+    public GpuSnapshot[] GetAll() => GetLatest(int.MaxValue);
+
+    /// <summary>
+    /// The newest <paramref name="max"/> snapshots, oldest first. Graphs that
+    /// show ten minutes should not copy the whole hour every tick.
+    /// </summary>
+    public GpuSnapshot[] GetLatest(int max)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(max);
         lock (_lock)
         {
-            var result = new GpuSnapshot[_count];
-            int start = (_next - _count + _buffer.Length) % _buffer.Length;
-            for (int i = 0; i < _count; i++)
+            int n = Math.Min(max, _count);
+            var result = new GpuSnapshot[n];
+            int start = (_next - n + _buffer.Length) % _buffer.Length;
+            for (int i = 0; i < n; i++)
             {
                 result[i] = _buffer[(start + i) % _buffer.Length]!;
             }
@@ -106,7 +114,21 @@ public sealed class TelemetryService : IDisposable
     /// <summary>Raised when a poll cycle throws unexpectedly; polling continues.</summary>
     public event Action<Exception>? PollError;
 
-    public SnapshotHistory HistoryFor(uint deviceIndex) => _history[deviceIndex];
+    /// <summary>
+    /// History for one device. Returns an EMPTY history rather than throwing for
+    /// an index with no poller: callers (the overlay, the metrics page) pass an
+    /// index that can outlive its device — a GPU that failed to initialise, or a
+    /// selection made before the pollers were built — and a KeyNotFoundException
+    /// from a render tick takes the window down.
+    /// </summary>
+    public SnapshotHistory HistoryFor(uint deviceIndex) =>
+        _history.TryGetValue(deviceIndex, out var history) ? history : _emptyHistory;
+
+    private readonly SnapshotHistory _emptyHistory = new(1);
+
+    /// <summary>The device's history, or null when no poller exists for it (e.g. no NVIDIA GPU at all).</summary>
+    public SnapshotHistory? TryHistoryFor(uint deviceIndex) =>
+        _history.TryGetValue(deviceIndex, out var history) ? history : null;
 
     public IReadOnlyCollection<uint> DeviceIndices => _history.Keys;
 
@@ -157,8 +179,15 @@ public sealed class TelemetryService : IDisposable
     public void Dispose()
     {
         _stop.Set();
-        _thread?.Join(TimeSpan.FromSeconds(3));
+
+        // A poll stuck in the driver can outlive the join; the loop then still
+        // waits on _stop, so it is only disposed once the thread is gone (a
+        // background thread dies with the process either way).
+        if (_thread is null || _thread.Join(TimeSpan.FromSeconds(3)))
+        {
+            _stop.Dispose();
+        }
+
         _thread = null;
-        _stop.Dispose();
     }
 }

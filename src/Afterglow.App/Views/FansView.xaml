@@ -4,120 +4,155 @@
              xmlns:controls="clr-namespace:Afterglow.App.Controls"
              xmlns:views="clr-namespace:Afterglow.App.Views">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="24,18,24,24" MaxWidth="900" HorizontalAlignment="Left">
+        <Grid Margin="24,20,24,24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="1000" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
 
-            <TextBlock Text="Fans" Style="{StaticResource PageTitle}" />
-            <TextBlock Text="{Binding LiveText}" Style="{StaticResource PageSubtitle}" />
+                <TextBlock Text="Fans" Style="{StaticResource PageTitle}" />
+                <TextBlock Text="{Binding LiveText}" Style="{StaticResource PageSubtitle}" />
 
-            <Border Background="#33E8B33C" CornerRadius="8" Padding="12,8" Margin="0,12,0,0"
-                    Visibility="{Binding CanControl, Converter={x:Static views:Converters.InverseBoolToVisibility}}">
-                <TextBlock Text="{Binding GateText}" Foreground="{StaticResource Warn}" FontSize="12.5" />
-            </Border>
+                <ContentControl Style="{StaticResource WarnBanner}" Content="{Binding GateText}" Margin="0,16,0,0"
+                                Visibility="{Binding CanControl, Converter={x:Static views:Converters.InverseBoolToVisibility}}" />
 
-            <!-- Mode selection -->
-            <Border Style="{StaticResource Card}" Margin="0,14,0,0">
-                <StackPanel>
-                    <TextBlock Text="Control mode" FontWeight="SemiBold" FontSize="13.5" />
-                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                        <RadioButton Content="Firmware (auto)" GroupName="fanmode" Foreground="{StaticResource Text}"
-                                     IsChecked="{Binding ModeIndex, Converter={x:Static views:IndexMatch.Zero}}" />
-                        <RadioButton Content="Fixed duty" GroupName="fanmode" Margin="24,0,0,0" Foreground="{StaticResource Text}"
-                                     IsChecked="{Binding ModeIndex, Converter={x:Static views:IndexMatch.One}}" />
-                        <RadioButton Content="Custom curve" GroupName="fanmode" Margin="24,0,0,0" Foreground="{StaticResource Text}"
-                                     IsChecked="{Binding ModeIndex, Converter={x:Static views:IndexMatch.Two}}" />
-                    </StackPanel>
+                <!-- Mode -->
+                <Border Style="{StaticResource Card}" Margin="0,20,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Control mode" Style="{StaticResource SectionTitle}" />
+                        <Border Style="{StaticResource SegmentedHost}" Margin="0,12,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton Style="{StaticResource SegmentedItem}" Content="Firmware (auto)" GroupName="fanmode"
+                                             IsChecked="{Binding ModeIndex, Converter={x:Static views:IndexMatch.Zero}}" />
+                                <RadioButton Style="{StaticResource SegmentedItem}" Content="Fixed duty" GroupName="fanmode"
+                                             IsChecked="{Binding ModeIndex, Converter={x:Static views:IndexMatch.One}}" />
+                                <RadioButton Style="{StaticResource SegmentedItem}" Content="Custom curve" GroupName="fanmode"
+                                             IsChecked="{Binding ModeIndex, Converter={x:Static views:IndexMatch.Two}}" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Style="{StaticResource SectionDescription}" Margin="0,8,0,0"
+                                   Text="The card's own fan control. Afterglow leaves the fans alone."
+                                   Visibility="{Binding ModeIndex, Converter={x:Static views:IndexMatch.ZeroVisible}}" />
+                        <TextBlock Style="{StaticResource SectionDescription}" Margin="0,8,0,0"
+                                   Text="Every fan at one speed, whatever the temperature."
+                                   Visibility="{Binding ModeIndex, Converter={x:Static views:IndexMatch.OneVisible}}" />
+                        <TextBlock Style="{StaticResource SectionDescription}" Margin="0,8,0,0"
+                                   Text="Afterglow sets the fans from the curve below while it runs; edits to the curve take effect immediately."
+                                   Visibility="{Binding ModeIndex, Converter={x:Static views:IndexMatch.TwoVisible}}" />
 
-                    <StackPanel Margin="0,12,0,0"
-                                Visibility="{Binding ModeIndex, Converter={x:Static views:IndexMatch.OneVisible}}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="140" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="70" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Duty (all fans)" FontSize="12.5" VerticalAlignment="Center" />
-                            <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="0" Maximum="100"
-                                    Value="{Binding FixedDuty}" VerticalAlignment="Center" TickFrequency="1" IsSnapToTickEnabled="True" />
-                            <TextBlock Grid.Column="2" Text="{Binding FixedDutyLabel}" FontSize="15" FontWeight="SemiBold"
-                                       HorizontalAlignment="Right" VerticalAlignment="Center" />
-                        </Grid>
-                        <TextBlock Text="0 % stops the fans (zero-RPM); 1 % and up rounds to the hardware minimum spin duty. Apply to a single fan for asymmetric setups:"
-                                   FontSize="11" Foreground="{StaticResource TextFaint}" Margin="0,8,0,0" TextWrapping="Wrap" />
-                        <ItemsControl ItemsSource="{Binding FanIds}" Margin="0,6,0,0">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Button Style="{StaticResource GhostButton}" Padding="10,5" Margin="0,0,8,0"
-                                            Command="{Binding DataContext.SetSingleFanCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding}">
-                                        <TextBlock FontSize="12">
-                                            <Run Text="Fan " /><Run Text="{Binding Mode=OneWay}" /><Run Text=" only" />
-                                        </TextBlock>
-                                    </Button>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                        <Button Style="{StaticResource PrimaryButton}" Content="Apply mode" MinWidth="120"
-                                Command="{Binding ApplyModeCommand}" IsEnabled="{Binding CanControl}" />
-                        <TextBlock Text="{Binding StatusText}" FontSize="12" Foreground="{StaticResource TextMuted}"
-                                   VerticalAlignment="Center" Margin="12,0,0,0" />
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-
-            <!-- Curve editor -->
-            <Border Style="{StaticResource Card}" Margin="0,10,0,0">
-                <StackPanel>
-                    <Grid>
-                        <StackPanel>
-                            <TextBlock Text="Fan curve" FontWeight="SemiBold" FontSize="13.5" />
-                            <TextBlock Text="Drag points · double-click to add · right-click to remove. The orange line is the live temperature."
-                                       FontSize="11" Foreground="{StaticResource TextFaint}" />
+                        <StackPanel Margin="0,16,0,0"
+                                    Visibility="{Binding ModeIndex, Converter={x:Static views:IndexMatch.OneVisible}}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="220" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="90" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Duty, all fans" Style="{StaticResource FieldLabel}" />
+                                    <TextBlock Text="0 % stops them; 1 % and up rounds to the lowest speed they can spin"
+                                               Style="{StaticResource FieldHint}" />
+                                </StackPanel>
+                                <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="0" Maximum="100" Margin="12,0,20,0"
+                                        AutomationProperties.Name="Fixed fan duty, percent"
+                                        Value="{Binding FixedDuty}" TickFrequency="1" IsSnapToTickEnabled="True" />
+                                <TextBlock Grid.Column="2" Text="{Binding FixedDutyLabel}" Style="{StaticResource ValueLabel}" />
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                <TextBlock Text="Or just one fan:" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                                <ItemsControl ItemsSource="{Binding FanIds}" Margin="8,0,0,0" Focusable="False">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Style="{StaticResource GhostButton}" Margin="0,0,8,0"
+                                                    AutomationProperties.Name="{Binding StringFormat='Fan {0} only'}"
+                                                    Command="{Binding DataContext.SetSingleFanCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}">
+                                                <TextBlock>
+                                                    <Run Text="Fan " /><Run Text="{Binding Mode=OneWay}" />
+                                                </TextBlock>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
                         </StackPanel>
-                    </Grid>
-                    <controls:FanCurveEditor x:Name="CurveEditor" Height="260" Margin="0,10,0,0"
-                                             Config="{Binding Curve, Mode=TwoWay}"
-                                             LiveTemp="{Binding LiveTemp}" LiveDuty="{Binding LiveDuty}" />
 
-                    <UniformGrid Columns="3" Margin="0,14,0,0">
-                        <StackPanel Margin="0,0,14,0">
-                            <TextBlock Text="Temperature source" FontSize="12" Foreground="{StaticResource TextMuted}" />
-                            <ComboBox SelectedIndex="{Binding TempSourceIndex}" Margin="0,6,0,0">
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button Style="{StaticResource PrimaryButton}" Content="Apply mode" MinWidth="120"
+                                    VerticalAlignment="Top" Command="{Binding ApplyModeCommand}" IsEnabled="{Binding CanControl}" />
+                            <TextBlock Grid.Column="1" Text="{Binding StatusText}" Style="{StaticResource StatusText}"
+                                       VerticalAlignment="Center" Margin="16,0,0,0" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Curve editor -->
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Fan curve" Style="{StaticResource SectionTitle}" />
+                        <TextBlock Style="{StaticResource SectionDescription}"
+                                   Text="Used in Custom curve mode. Drag a point to move it, double-click to add one, right-click to remove one. The orange line is the current temperature." />
+                        <controls:FanCurveEditor x:Name="CurveEditor" Height="280" Margin="0,12,0,0"
+                                                 Config="{Binding Curve, Mode=TwoWay}"
+                                                 LiveTemp="{Binding LiveTemp}" LiveDuty="{Binding LiveDuty}" />
+
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="220" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="90" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="12" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="12" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="Temperature source" Style="{StaticResource FieldLabel}" />
+                            <ComboBox Grid.Column="1" SelectedIndex="{Binding TempSourceIndex}" Margin="12,0,0,0"
+                                      HorizontalAlignment="Left" MinWidth="260" AutomationProperties.Name="Temperature source">
                                 <ComboBoxItem Content="GPU core" />
                                 <ComboBoxItem Content="Hot spot (falls back to core)" />
                                 <ComboBoxItem Content="Memory junction" />
                             </ComboBox>
-                        </StackPanel>
-                        <StackPanel Margin="0,0,14,0">
-                            <TextBlock FontSize="12" Foreground="{StaticResource TextMuted}">
-                                <Run Text="Hysteresis: " /><Run Text="{Binding Hysteresis, StringFormat=F0}" /><Run Text=" °C (damps fan drops)" />
-                            </TextBlock>
-                            <Slider Style="{StaticResource TuneSlider}" Minimum="0" Maximum="15" Value="{Binding Hysteresis}"
-                                    Margin="0,10,0,0" TickFrequency="1" IsSnapToTickEnabled="True" />
-                        </StackPanel>
-                        <StackPanel>
-                            <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding ZeroRpmEnabled}"
-                                      Content="Zero-RPM below" />
-                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                                <Slider Style="{StaticResource TuneSlider}" Minimum="30" Maximum="60" Width="150"
-                                        Value="{Binding ZeroRpmBelow}" TickFrequency="1" IsSnapToTickEnabled="True"
-                                        IsEnabled="{Binding ZeroRpmEnabled}" />
-                                <TextBlock FontSize="12.5" VerticalAlignment="Center" Margin="8,0,0,0">
-                                    <Run Text="{Binding ZeroRpmBelow, StringFormat=F0}" /><Run Text=" °C" />
-                                </TextBlock>
-                            </StackPanel>
-                        </StackPanel>
-                    </UniformGrid>
-                </StackPanel>
-            </Border>
 
-        </StackPanel>
+                            <StackPanel Grid.Row="2" VerticalAlignment="Center">
+                                <TextBlock Text="Hysteresis" Style="{StaticResource FieldLabel}" />
+                                <TextBlock Text="Fans slow down only after the temperature falls this much" Style="{StaticResource FieldHint}" />
+                            </StackPanel>
+                            <Slider Grid.Row="2" Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="0" Maximum="15"
+                                    Value="{Binding Hysteresis}" Margin="12,0,20,0" TickFrequency="1" IsSnapToTickEnabled="True"
+                                    AutomationProperties.Name="Fan curve hysteresis, degrees Celsius" />
+                            <TextBlock Grid.Row="2" Grid.Column="2" Style="{StaticResource ValueLabel}"
+                                       Text="{Binding Hysteresis, StringFormat='{}{0:F0} °C'}" />
+
+                            <StackPanel Grid.Row="4" VerticalAlignment="Center">
+                                <CheckBox Style="{StaticResource ToggleSwitch}" IsChecked="{Binding ZeroRpmEnabled}"
+                                          Content="Zero-RPM" AutomationProperties.Name="Zero-RPM" />
+                                <TextBlock Text="Fans stay off below this temperature" Style="{StaticResource FieldHint}" Margin="0,4,0,0" />
+                            </StackPanel>
+                            <Slider Grid.Row="4" Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="30" Maximum="60"
+                                    Margin="12,0,20,0" Value="{Binding ZeroRpmBelow}" TickFrequency="1" IsSnapToTickEnabled="True"
+                                    IsEnabled="{Binding ZeroRpmEnabled}"
+                                    AutomationProperties.Name="Zero-RPM below, degrees Celsius" />
+                            <TextBlock Grid.Row="4" Grid.Column="2" Style="{StaticResource ValueLabel}"
+                                       Text="{Binding ZeroRpmBelow, StringFormat='{}{0:F0} °C'}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </Grid>
     </ScrollViewer>
 </UserControl>

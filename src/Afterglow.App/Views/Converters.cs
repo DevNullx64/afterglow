@@ -14,6 +14,50 @@ public static class Converters
     public static IValueConverter SeverityToBrush { get; } = new SeverityBrushConverter();
 
     public static IValueConverter InverseBool { get; } = new InverseBoolConverter();
+
+    /// <summary>Visible when the bound string has text (status lines, logs, notes).</summary>
+    public static IValueConverter NonEmptyToVisibility { get; } = new NonEmptyToVisibilityConverter(false);
+
+    /// <summary>Visible while the bound string is empty (the empty state that stands in for it).</summary>
+    public static IValueConverter EmptyToVisibility { get; } = new NonEmptyToVisibilityConverter(true);
+
+    /// <summary>Visible when the bound count is zero (empty-list placeholders).</summary>
+    public static IValueConverter ZeroToVisibility { get; } = new ZeroToVisibilityConverter(false);
+
+    /// <summary>Visible when the bound count is above zero (actions that need a list entry).</summary>
+    public static IValueConverter NonZeroToVisibility { get; } = new ZeroToVisibilityConverter(true);
+}
+
+public sealed class NonEmptyToVisibilityConverter : IValueConverter
+{
+    private readonly bool _invert;
+
+    public NonEmptyToVisibilityConverter(bool invert)
+    {
+        _invert = invert;
+    }
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        string.IsNullOrWhiteSpace(value as string) == _invert ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
+public sealed class ZeroToVisibilityConverter : IValueConverter
+{
+    private readonly bool _invert;
+
+    public ZeroToVisibilityConverter(bool invert)
+    {
+        _invert = invert;
+    }
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        (value is 0) != _invert ? Visibility.Visible : Visibility.Collapsed;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
 }
 
 public sealed class InverseBoolConverter : IValueConverter
@@ -71,7 +115,11 @@ public static class IndexMatch
 
     public static IValueConverter Two { get; } = new IndexMatchConverter(2, toVisibility: false);
 
+    public static IValueConverter ZeroVisible { get; } = new IndexMatchConverter(0, toVisibility: true);
+
     public static IValueConverter OneVisible { get; } = new IndexMatchConverter(1, toVisibility: true);
+
+    public static IValueConverter TwoVisible { get; } = new IndexMatchConverter(2, toVisibility: true);
 }
 
 public sealed class IndexMatchConverter : IValueConverter

@@ -68,6 +68,28 @@ public sealed class AppServices : IDisposable
     /// <summary>Raised on the UI thread after the selection moved to another GPU.</summary>
     public event Action<GpuContext>? SelectedGpuChanged;
 
+    private bool _windowVisible;
+
+    /// <summary>
+    /// True while the main window is on screen (shown and not minimized). Pages
+    /// stop their per-tick display work while it is false — see ILivePage.
+    /// </summary>
+    public bool WindowVisible => _windowVisible;
+
+    /// <summary>Raised on the UI thread when <see cref="WindowVisible"/> flips.</summary>
+    public event Action<bool>? WindowVisibleChanged;
+
+    public void SetWindowVisible(bool visible)
+    {
+        if (visible == _windowVisible)
+        {
+            return;
+        }
+
+        _windowVisible = visible;
+        WindowVisibleChanged?.Invoke(visible);
+    }
+
     public void SelectGpu(uint deviceIndex)
     {
         if (deviceIndex == _selectedGpuIndex || Gpus.All(g => g.Index != deviceIndex))
@@ -79,9 +101,20 @@ public sealed class AppServices : IDisposable
         SelectedGpuChanged?.Invoke(SelectedGpu!);
     }
 
+    /// <summary>
+    /// Turns the CSV-only sensors (video clock, encoder/decoder, PCIe) on while a
+    /// CSV log is recording and off otherwise; nothing else in the app shows them.
+    /// </summary>
+    public void SetExtendedMetrics(bool enabled)
+    {
+        foreach (var gpu in Gpus)
+        {
+            gpu.Poller.ExtendedMetrics = enabled;
+        }
+    }
+
     /// <summary>Settings key for one GPU's fan configuration.</summary>
-    public static string FanKeyFor(GpuContext gpu) =>
-        gpu.Uuid ?? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"index:{gpu.Index}");
+    public static string FanKeyFor(GpuContext gpu) => gpu.StableKey;
 
     /// <summary>
     /// The persisted fan configuration for one GPU: its own entry when present,
@@ -187,6 +220,12 @@ public sealed class AppServices : IDisposable
             fanControl[gpu.Index] = new FanControlService(gpu.Tuner);
         }
 
+        // The GUI shows none of the CSV-only sensors; CSV logging turns them on.
+        foreach (var gpu in manager.Gpus)
+        {
+            gpu.Poller.ExtendedMetrics = false;
+        }
+
         var telemetry = new TelemetryService(
             manager.Gpus.Select(g => (ISensorSource)g.Poller).ToArray(),
             TimeSpan.FromSeconds(1));
@@ -199,22 +238,37 @@ public sealed class AppServices : IDisposable
             }
         };
 
-        AppPaths.EnsureCreated();
+        try
+        {
+            AppPaths.EnsureCreated();
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            // An unelevated instance can't create folders in a data root an
+            // elevated run has locked down; it monitors without them (writes that
+            // need them degrade on their own).
+            Core.Diagnostics.Log.Info($"Data folders unavailable to this unelevated instance: {ex.Message}");
+        }
 
-        // One curve per GPU, each fed only its own card's snapshots — a second
-        // card's V/F points must never plan an undervolt for the first. The
-        // primary GPU keeps the legacy vf-curve.json.
+        // One curve per GPU, each fed only its own card's snapshots and kept in
+        // a file keyed by that card's UUID — a curve measured on one card must
+        // never plan an undervolt for another. Not even the primary card reads
+        // the old shared vf-curve.json: it carries no identity, and whichever
+        // card enumerates first is not necessarily the card that measured it
+        // (F-15, F-55).
         var vfCurves = new Dictionary<uint, Core.Tuning.VfCurveRecorder>();
         foreach (var gpu in manager.Gpus)
         {
-            var curveRecorder = new Core.Tuning.VfCurveRecorder
-            {
-                DeviceIndex = gpu.Index,
-                PersistPath = Core.Tuning.VfCurveRecorder.PathFor(
-                    gpu.Uuid, isPrimary: gpu.Index == manager.Gpus[0].Index),
-            };
+            var curveRecorder = Core.Tuning.VfCurveRecorder.ForGpu(gpu.Index, gpu.Uuid, gpu.PciVendorId);
             curveRecorder.Load();
             vfCurves[gpu.Index] = curveRecorder;
+        }
+
+        if (manager.Gpus.Count > 0 && System.IO.File.Exists(Core.Tuning.VfCurveRecorder.DefaultPath))
+        {
+            Core.Diagnostics.Log.Info(
+                "vf-curve.json from an earlier version is not loaded: it carries no GPU identity, so it cannot be " +
+                "attributed to a card. Each card's curve rebuilds from telemetry; the old file is left in place.");
         }
 
         telemetry.SnapshotTaken += snapshot =>
@@ -243,15 +297,48 @@ public sealed class AppServices : IDisposable
                     : System.IO.Path.Combine(AppPaths.FlightDir,
                         string.Create(System.Globalization.CultureInfo.InvariantCulture, $"gpu{gpu.Index}"));
 
-            try
+            // A machine crash ends every stream at once, so EVERY card's log has
+            // to be read: stopping at the first non-null result always picked the
+            // primary (iterated first) and reported ITS offsets and load state, so
+            // a stock, idle primary produced "not an overclocking failure" while a
+            // secondary card died under load. The card that was actually tuned at
+            // the time of death names the report. Each analysis is fenced on its
+            // own: whatever is in an old recording — torn, corrupted, or planted
+            // before first run — must not stop the app, nor the rotation below
+            // that moves the bad file out of the way (F-34). One System-log walk
+            // serves every card (the scope), instead of one per card before the
+            // main window exists.
+            Core.Diagnostics.CrashReport? bestReport = null;
+            using (Core.Diagnostics.CrashForensics.ShareSystemLogQueries())
             {
-                // A machine crash ends every stream at once; the first stream
-                // with findings names the report (primary checked first).
                 foreach (var gpu in manager.Gpus)
                 {
-                    crashReport ??= Core.Diagnostics.CrashForensics.AnalyzePreviousSession(FlightDirFor(gpu));
-                }
+                    try
+                    {
+                        var report = Core.Diagnostics.CrashForensics.AnalyzePreviousSession(
+                            FlightDirFor(gpu),
+                            string.Create(System.Globalization.CultureInfo.InvariantCulture, $"GPU {gpu.Index} — {gpu.Name}"));
+                        if (report is null)
+                        {
+                            continue;
+                        }
 
+                        report = report with { GpuIndex = gpu.Index, GpuName = gpu.Name };
+                        bestReport = bestReport is null || (report.TuningApplied && !bestReport.TuningApplied)
+                            ? report
+                            : bestReport;
+                    }
+                    catch (Exception ex)
+                    {
+                        Core.Diagnostics.Log.Warn($"Crash analysis skipped for GPU {gpu.Index}: {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
+            }
+
+            crashReport = bestReport;
+
+            try
+            {
                 foreach (var gpu in manager.Gpus)
                 {
                     flights[gpu.Index] = new Core.Diagnostics.FlightRecorder(FlightDirFor(gpu));
@@ -337,18 +424,27 @@ public sealed class AppServices : IDisposable
 
         GameWatcher.Dispose();
         TdrWatchdog.Dispose();
+
+        // Telemetry FIRST. Its SnapshotTaken subscription drives the fan curve,
+        // and stopping the fans while snapshots are still arriving let one land
+        // after the release and command the fans again — leaving the card on
+        // manual fans after exit. FrameMetrics is disposed here too because its
+        // teardown waits on PresentMon for up to two seconds, which used to sit
+        // between the fan release and the poller still feeding it.
+        FrameMetrics.Dispose();
+        ActiveCsvLogger?.Dispose();
+        Telemetry.Dispose();
+
         foreach (var fans in FanControl.Values)
         {
             fans.Dispose();
         }
 
-        FrameMetrics.Dispose();
-        ActiveCsvLogger?.Dispose();
-        Telemetry.Dispose();
         foreach (var flightRecorder in Flights.Values)
         {
             flightRecorder.Dispose();
         }
+
         Manager?.Dispose();
     }
 }

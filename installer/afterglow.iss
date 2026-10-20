@@ -44,8 +44,75 @@ Name: "startup"; Description: "Start Afterglow with Windows (elevated via Task S
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Afterglow"; Flags: deletevalue
 
 [Run]
-Filename: "{app}\Afterglow.exe"; Parameters: "--register-startup"; Tasks: startup; Flags: runhidden waituntilterminated
+; --register-startup is NOT a plain [Run] entry: Inno ignores a [Run] exit code,
+; so a failed Task Scheduler registration (group policy, a security product, a
+; refused location) would be reported to the user as a successful install while
+; the ticked "Start with Windows" box silently did nothing (F-67). It now runs
+; from [Code] below, which inspects the exit code and tells the user on failure.
 Filename: "{app}\Afterglow.exe"; Description: "Launch Afterglow"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""Afterglow"" /F"; RunOnceId: "RemoveStartupTask"; Flags: runhidden
+
+[UninstallDelete]
+; The per-GPU crash-recovery records describe tuning on THIS install; after an
+; uninstall they are stale, and a reinstall must not greet the user with a crash
+; banner about them (F-66). Everything else (settings with fan curves and rules,
+; profiles, logs, flight recordings) is the user's — see CurUninstallStepChanged.
+Type: files; Name: "{commonappdata}\Afterglow\applied-state*.json"
+
+[Code]
+// F-67: register the elevated logon task from code so the exit code is checked.
+// Setup already runs elevated (PrivilegesRequired=admin), so the child inherits
+// that token and only Task Scheduler itself can refuse.
+procedure RegisterStartupTask;
+var
+  ResultCode: Integer;
+begin
+  if not WizardIsTaskSelected('startup') then
+    exit;
+
+  if Exec(ExpandConstant('{app}\Afterglow.exe'), '--register-startup', '',
+          SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+  begin
+    if ResultCode <> 0 then
+    begin
+      Log(Format('register-startup failed with exit code %d', [ResultCode]));
+      if not WizardSilent then
+        MsgBox('Afterglow was installed, but turning on "Start Afterglow with Windows"'
+          + ' did not work: the Task Scheduler task could not be created. This is often'
+          + ' group policy or security software blocking scheduled-task creation.'
+          + #13#10#13#10 + 'You can try again later from Settings; the rest of the install'
+          + ' completed normally.', mbError, MB_OK);
+    end;
+  end
+  else
+  begin
+    Log(Format('register-startup could not be launched (code %d)', [ResultCode]));
+    if not WizardSilent then
+      MsgBox('Afterglow was installed, but the startup-task helper could not be launched,'
+        + ' so "Start Afterglow with Windows" was not enabled. You can turn it on later'
+        + ' from Settings.', mbError, MB_OK);
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    RegisterStartupTask;
+end;
+
+// F-66: settings (including the startup profile that auto-applies at logon),
+// profiles, logs and crash recordings outlive the program unless the user asks
+// otherwise. Interactive uninstalls ask, defaulting to keep; silent ones keep.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if (CurUninstallStep = usPostUninstall) and not UninstallSilent then
+  begin
+    if MsgBox('Also remove your Afterglow settings, profiles, logs and crash recordings?'
+      + #13#10#13#10 + 'Choose No to keep them for a later reinstall. Kept settings include any'
+      + ' startup profile, which applies again at logon if you re-enable "Start with Windows".',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+      DelTree(ExpandConstant('{commonappdata}\Afterglow'), True, True, True);
+  end;
+end;

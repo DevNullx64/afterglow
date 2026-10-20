@@ -108,7 +108,7 @@ public sealed class FrametimeWindow
     private readonly record struct Entry(double TimestampMs, double FrametimeMs);
 
     private readonly Queue<Entry> _entries = new();
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private double _windowMs;
 
     public FrametimeWindow(TimeSpan window)

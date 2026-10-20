@@ -3,145 +3,168 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:Afterglow.App.Views">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="24,18,24,24" MaxWidth="860" HorizontalAlignment="Left">
+        <Grid Margin="24,20,24,24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="1000" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
 
-            <TextBlock Text="Profiles" Style="{StaticResource PageTitle}" />
-            <TextBlock Style="{StaticResource PageSubtitle}"
-                       Text="Unlimited named profiles, stored as plain JSON you can inspect, back up, and share." />
+                <TextBlock Text="Profiles" Style="{StaticResource PageTitle}" />
+                <TextBlock Style="{StaticResource PageSubtitle}"
+                           Text="Named sets of tuning and fan settings, saved as plain JSON files you can read, back up and share." />
 
-            <Border Style="{StaticResource Card}" Margin="0,14,0,0">
-                <StackPanel>
-                    <TextBlock Text="Save current tuning as" FontWeight="SemiBold" FontSize="13.5" />
-                    <Grid Margin="0,10,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox Text="{Binding NewProfileName, UpdateSourceTrigger=PropertyChanged}"
-                                 FontSize="13" />
-                        <Button Grid.Column="1" Style="{StaticResource PrimaryButton}" Content="Save profile"
-                                Command="{Binding SaveCurrentCommand}" Margin="10,0,0,0" />
-                    </Grid>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource Card}" Margin="0,10,0,0">
-                <StackPanel>
-                    <TextBlock Text="Saved profiles" FontWeight="SemiBold" FontSize="13.5" Margin="0,0,0,8" />
-                    <TextBlock Text="{Binding EmptyStateText}" FontSize="12" Foreground="{StaticResource TextFaint}"
-                               TextWrapping="Wrap" Margin="0,4,0,8"
-                               Visibility="{Binding HasProfiles, Converter={x:Static views:Converters.InverseBoolToVisibility}}" />
-                    <ListBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding Selected}"
-                             Background="Transparent" BorderThickness="0" MaxHeight="360"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                        <ListBox.ItemContainerStyle>
-                            <Style TargetType="ListBoxItem">
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="ListBoxItem">
-                                            <Border x:Name="Root" Background="Transparent" CornerRadius="8" Padding="12,9"
-                                                    Margin="0,2">
-                                                <ContentPresenter />
-                                            </Border>
-                                            <ControlTemplate.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="Root" Property="Background" Value="{StaticResource Bg3}" />
-                                                </Trigger>
-                                                <Trigger Property="IsSelected" Value="True">
-                                                    <Setter TargetName="Root" Property="Background" Value="{StaticResource Bg3}" />
-                                                    <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource Accent}" />
-                                                    <Setter TargetName="Root" Property="BorderThickness" Value="1" />
-                                                </Trigger>
-                                            </ControlTemplate.Triggers>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </ListBox.ItemContainerStyle>
-                        <ListBox.ItemTemplate>
-                            <DataTemplate>
-                                <Grid>
-                                    <StackPanel>
-                                        <StackPanel Orientation="Horizontal">
-                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="13" />
-                                            <Border Background="#2E46C36B" CornerRadius="5" Padding="6,1" Margin="8,0,0,0"
-                                                    VerticalAlignment="Center"
-                                                    Visibility="{Binding MarkedStable, Converter={x:Static views:Converters.BoolToVisibility}}">
-                                                <TextBlock Text="STABLE" FontSize="9.5" Foreground="{StaticResource Good}" />
-                                            </Border>
-                                            <Border Background="#2EE8B33C" CornerRadius="5" Padding="6,1" Margin="6,0,0,0"
-                                                    VerticalAlignment="Center"
-                                                    Visibility="{Binding FullyCertified, Converter={x:Static views:Converters.BoolToVisibility}}"
-                                                    ToolTip="Passed all four stability modes (sustained, transitions, excursions, VRAM) at these offsets.">
-                                                <TextBlock Text="CERTIFIED" FontSize="9.5" Foreground="{StaticResource Warn}" />
-                                            </Border>
-                                        </StackPanel>
-                                        <TextBlock FontSize="11.5" Foreground="{StaticResource TextMuted}">
-                                            <Run Text="core " /><Run Text="{Binding CoreOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · mem " /><Run Text="{Binding MemOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · power " /><Run Text="{Binding PowerLimitW, Mode=OneWay, StringFormat=F0}" /><Run Text=" W · fans " /><Run Text="{Binding FanMode, Mode=OneWay}" />
-                                        </TextBlock>
-                                    </StackPanel>
-                                    <TextBlock Text="{Binding ModifiedAt, Mode=OneWay, StringFormat=g}" FontSize="10.5"
-                                               Foreground="{StaticResource TextFaint}" HorizontalAlignment="Right"
-                                               VerticalAlignment="Top" />
-                                </Grid>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                        <Button Style="{StaticResource PrimaryButton}" Content="Apply selected"
-                                Command="{Binding ApplySelectedCommand}" />
-                        <Button Style="{StaticResource GhostButton}" Content="Load into Tuning" Margin="8,0,0,0"
-                                Command="{Binding LoadIntoTuningCommand}" />
-                        <Button Style="{StaticResource GhostButton}" Content="Mark stable" Margin="8,0,0,0"
-                                Command="{Binding MarkStableCommand}"
-                                ToolTip="Confirms you've validated this profile under load (Stability page). Required before it may auto-apply at startup." />
-                        <Button Style="{StaticResource GhostButton}" Content="Delete" Margin="8,0,0,0"
-                                Command="{Binding DeleteSelectedCommand}" />
+                <!-- Save -->
+                <Border Style="{StaticResource Card}" Margin="0,20,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Save the current settings" Style="{StaticResource SectionTitle}" />
+                        <TextBlock Style="{StaticResource SectionDescription}"
+                                   Text="Stores the values on the Tuning page and the fan mode from the Fans page." />
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Text="{Binding NewProfileName, UpdateSourceTrigger=PropertyChanged}"
+                                     views:Hint.Placeholder="Profile name, e.g. Quiet 2700 MHz"
+                                     AutomationProperties.Name="Profile name" />
+                            <Button Grid.Column="1" Style="{StaticResource PrimaryButton}" Content="Save profile"
+                                    Command="{Binding SaveCurrentCommand}" Margin="8,0,0,0" />
+                        </Grid>
                     </StackPanel>
-                    <TextBlock Text="{Binding StatusText}" FontSize="12" Foreground="{StaticResource TextMuted}"
-                               Margin="0,10,0,0" TextWrapping="Wrap" />
-                </StackPanel>
-            </Border>
+                </Border>
 
-            <!-- Certification wizard -->
-            <Border Style="{StaticResource Card}" Margin="0,10,0,0">
-                <StackPanel>
-                    <TextBlock Text="Certify a profile" FontWeight="SemiBold" FontSize="13.5" />
-                    <TextBlock Text="Applies the selected profile and runs all four stability modes against it in sequence — sustained burn, transition cycling, boost excursions, and the full-VRAM test. Each pass is stamped into the profile (tied to its exact offsets; editing them invalidates the stamps). Passing all four marks it stable. A failure stops the run and resets the GPU to driver defaults."
-                               FontSize="11.5" Foreground="{StaticResource TextFaint}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                <!-- List -->
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Saved profiles" Style="{StaticResource SectionTitle}" />
 
-                    <Border Background="#33E8B33C" CornerRadius="8" Padding="12,8" Margin="0,10,0,0"
-                            Visibility="{Binding CanCertify, Converter={x:Static views:Converters.InverseBoolToVisibility}}">
-                        <TextBlock Text="{Binding CertifyGateText}" Foreground="{StaticResource Warn}" FontSize="12" TextWrapping="Wrap" />
-                    </Border>
+                        <Border Style="{StaticResource InsetPanel}" Margin="0,12,0,0"
+                                Visibility="{Binding HasProfiles, Converter={x:Static views:Converters.InverseBoolToVisibility}}">
+                            <TextBlock Text="{Binding EmptyStateText}" Style="{StaticResource Caption}" TextWrapping="Wrap" />
+                        </Border>
 
-                    <TextBlock Text="{Binding SelectedCertificationText}" FontSize="12" Margin="0,10,0,0"
-                               FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextMuted}" />
+                        <ListBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding Selected}" MaxHeight="360" Margin="0,8,0,0"
+                                 AutomationProperties.Name="Saved profiles"
+                                 Visibility="{Binding HasProfiles, Converter={x:Static views:Converters.BoolToVisibility}}">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="FocusVisualStyle" Value="{StaticResource NavFocusRing}" />
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ListBoxItem">
+                                                <Border x:Name="Root" Background="Transparent" CornerRadius="4" Padding="12,9"
+                                                        Margin="0,2" BorderThickness="1" BorderBrush="Transparent">
+                                                    <ContentPresenter />
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Root" Property="Background" Value="{StaticResource Bg3}" />
+                                                    </Trigger>
+                                                    <Trigger Property="IsSelected" Value="True">
+                                                        <Setter TargetName="Root" Property="Background" Value="{StaticResource Bg3}" />
+                                                        <Setter TargetName="Root" Property="BorderBrush" Value="{StaticResource Accent}" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" />
+                                                <Border Background="#2E46C36B" CornerRadius="4" Padding="6,1" Margin="8,0,0,0"
+                                                        VerticalAlignment="Center"
+                                                        Visibility="{Binding MarkedStable, Converter={x:Static views:Converters.BoolToVisibility}}">
+                                                    <TextBlock Text="Stable" FontSize="12" Foreground="{StaticResource Good}" />
+                                                </Border>
+                                                <Border Background="#2EE8B33C" CornerRadius="4" Padding="6,1" Margin="6,0,0,0"
+                                                        VerticalAlignment="Center"
+                                                        Visibility="{Binding FullyCertified, Converter={x:Static views:Converters.BoolToVisibility}}"
+                                                        ToolTip="Passed all four stability modes (sustained, transitions, excursions, VRAM) at these offsets.">
+                                                    <TextBlock Text="Certified" FontSize="12" Foreground="{StaticResource Warn}" />
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock Style="{StaticResource Caption}" Margin="0,2,0,0">
+                                                <Run Text="core " /><Run Text="{Binding CoreOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · mem " /><Run Text="{Binding MemOffsetMHz, Mode=OneWay}" /><Run Text=" MHz · power " /><Run Text="{Binding PowerLimitW, Mode=OneWay, StringFormat='{}{0:F0} W', TargetNullValue='unchanged'}" /><Run Text=" · fans " /><Run Text="{Binding FanMode, Mode=OneWay}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding ModifiedAt, Mode=OneWay, StringFormat=g}"
+                                                   Style="{StaticResource Caption}" Foreground="{StaticResource TextFaint}"
+                                                   VerticalAlignment="Top" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
 
-                    <Grid Margin="0,10,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="170" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="150" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Time per mode" FontSize="12.5" VerticalAlignment="Center" />
-                        <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="45" Maximum="300"
-                                Value="{Binding CertifySeconds}" TickFrequency="15" IsSnapToTickEnabled="True"
-                                VerticalAlignment="Center"
-                                IsEnabled="{Binding CertifyRunning, Converter={x:Static views:Converters.InverseBool}}" />
-                        <TextBlock Grid.Column="2" Text="{Binding CertifySecondsLabel}" FontSize="12.5"
-                                   HorizontalAlignment="Right" VerticalAlignment="Center"
-                                   Foreground="{StaticResource TextMuted}" />
-                    </Grid>
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <WrapPanel>
+                                <Button Style="{StaticResource PrimaryButton}" Content="Apply" MinWidth="100" Margin="0,0,8,0"
+                                        Command="{Binding ApplySelectedCommand}" />
+                                <Button Style="{StaticResource GhostButton}" Content="Load into Tuning" Margin="0,0,8,0"
+                                        Command="{Binding LoadIntoTuningCommand}" />
+                                <Button Style="{StaticResource GhostButton}" Content="Mark stable"
+                                        Command="{Binding MarkStableCommand}"
+                                        ToolTip="Confirms you've tested this profile under load (Stability page). Required before it may apply itself at startup." />
+                            </WrapPanel>
+                            <Button Grid.Column="1" Style="{StaticResource SubtleButton}" FontSize="14" MinHeight="32"
+                                    Command="{Binding DeleteSelectedCommand}" VerticalAlignment="Top"
+                                    AutomationProperties.Name="Delete profile">
+                                <TextBlock><Run Text="&#xE74D;" FontFamily="{StaticResource IconFont}" FontSize="12" /><Run Text="  Delete" /></TextBlock>
+                            </Button>
+                        </Grid>
+                        <TextBlock Text="{Binding StatusText}" Style="{StaticResource StatusText}" Margin="0,12,0,0" />
+                    </StackPanel>
+                </Border>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                        <Button Style="{StaticResource PrimaryButton}" MinWidth="180"
-                                Command="{Binding ToggleCertifyCommand}" IsEnabled="{Binding CanCertify}">
-                            <Button.Content>
+                <!-- Certification wizard -->
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Certify a profile" Style="{StaticResource SectionTitle}" />
+                        <TextBlock Style="{StaticResource SectionDescription}"
+                                   Text="Applies the selected profile and runs all four stability modes against it in turn: sustained burn, transition cycling, boost excursions and the full-VRAM test. Each pass is recorded in the profile and tied to its exact offsets (changing them clears the record). Passing all four marks it stable. A failure stops the run and resets the GPU to driver defaults." />
+
+                        <ContentControl Style="{StaticResource WarnBanner}" Content="{Binding CertifyGateText}" Margin="0,12,0,0"
+                                        Visibility="{Binding CanCertify, Converter={x:Static views:Converters.InverseBoolToVisibility}}" />
+
+                        <TextBlock Text="{Binding SelectedCertificationText}" Style="{StaticResource StatusText}"
+                                   FontFamily="{StaticResource MonoFont}" FontSize="12" Margin="0,12,0,0" />
+
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="220" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="120" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Time per mode" Style="{StaticResource FieldLabel}" />
+                            <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="45" Maximum="300" Margin="12,0,20,0"
+                                    Value="{Binding CertifySeconds}" TickFrequency="15" IsSnapToTickEnabled="True"
+                                    AutomationProperties.Name="Certification time per mode, seconds"
+                                    IsEnabled="{Binding CertifyRunning, Converter={x:Static views:Converters.InverseBool}}" />
+                            <TextBlock Grid.Column="2" Text="{Binding CertifySecondsLabel}" Style="{StaticResource ValueLabel}" />
+                        </Grid>
+
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button Style="{StaticResource PrimaryButton}" MinWidth="180" VerticalAlignment="Center"
+                                    Command="{Binding ToggleCertifyCommand}" IsEnabled="{Binding CanCertify}">
                                 <TextBlock>
                                     <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource InheritingText}">
                                             <Setter Property="Text" Value="Certify selected profile" />
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding CertifyRunning}" Value="True">
@@ -151,70 +174,80 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
-                            </Button.Content>
-                        </Button>
-                        <TextBlock Text="{Binding CertifyPhaseText}" FontSize="12.5" VerticalAlignment="Center"
-                                   Margin="14,0,0,0" TextWrapping="Wrap" />
+                            </Button>
+                            <TextBlock Grid.Column="1" Text="{Binding CertifyPhaseText}" Style="{StaticResource StatusText}"
+                                       Foreground="{StaticResource Text}" VerticalAlignment="Center" Margin="16,0,0,0" />
+                        </Grid>
+
+                        <StackPanel Margin="0,16,0,0"
+                                    Visibility="{Binding CertifyLog, Converter={x:Static views:Converters.NonEmptyToVisibility}}">
+                            <ProgressBar Value="{Binding CertifyProgress, Mode=OneWay}" Maximum="1" />
+                            <Border Style="{StaticResource InsetPanel}" Margin="0,12,0,0">
+                                <TextBlock Text="{Binding CertifyLog}" Style="{StaticResource LogText}" />
+                            </Border>
+                        </StackPanel>
                     </StackPanel>
+                </Border>
 
-                    <ProgressBar Value="{Binding CertifyProgress, Mode=OneWay}" Maximum="1" Height="5" Margin="0,10,0,0"
-                                 Background="{StaticResource Bg3}" Foreground="{StaticResource Accent}" BorderThickness="0" />
+                <!-- Per-game rules -->
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Per-game profiles and driver settings" Style="{StaticResource SectionTitle}" />
+                        <TextBlock Style="{StaticResource SectionDescription}"
+                                   Text="When the game starts, the profile selected above is applied; your previous tuning comes back when it exits. You can also set the NVIDIA driver's own per-game options (frame cap, vsync, low latency). Those are written to the same store the NVIDIA Control Panel edits, so they stay in effect even when Afterglow isn't running." />
 
-                    <Border Background="{StaticResource Bg1}" CornerRadius="7" Padding="10" Margin="0,10,0,0"
-                            MinHeight="90">
-                        <TextBlock Text="{Binding CertifyLog}" FontFamily="{StaticResource MonoFont}" FontSize="11"
-                                   Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" />
-                    </Border>
-                </StackPanel>
-            </Border>
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Text="{Binding NewRuleExe, UpdateSourceTrigger=PropertyChanged}"
+                                     views:Hint.Placeholder="Game executable, e.g. cyberpunk2077.exe"
+                                     AutomationProperties.Name="Game executable" />
+                            <Button Grid.Column="1" Style="{StaticResource GhostButton}" Content="Add rule"
+                                    Command="{Binding AddRuleCommand}" Margin="8,0,0,0" />
+                        </Grid>
+                        <WrapPanel Margin="0,12,0,0">
+                            <TextBlock Text="Frame cap" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBox Text="{Binding NewRuleCapFps, UpdateSourceTrigger=PropertyChanged}" Width="72"
+                                     TextAlignment="Center" views:Hint.Placeholder="off" Margin="0,0,20,0"
+                                     AutomationProperties.Name="Frame cap, frames per second"
+                                     ToolTip="The driver's frame-rate limiter; empty or 0 = off" />
+                            <TextBlock Text="Vsync" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox SelectedIndex="{Binding NewRuleVsyncIndex}" MinWidth="150" Margin="0,0,20,0"
+                                      AutomationProperties.Name="Vsync">
+                                <ComboBoxItem Content="Driver default" />
+                                <ComboBoxItem Content="Force on" />
+                                <ComboBoxItem Content="Force off" />
+                            </ComboBox>
+                            <CheckBox Content="Low latency (1 pre-rendered frame)" IsChecked="{Binding NewRuleLowLatency}"
+                                      VerticalAlignment="Center" />
+                        </WrapPanel>
 
-            <Border Style="{StaticResource Card}" Margin="0,10,0,0">
-                <StackPanel>
-                    <TextBlock Text="Per-game auto profiles + driver settings" FontWeight="SemiBold" FontSize="13.5" />
-                    <TextBlock Text="When the game launches, its profile is applied automatically; your previous tuning is restored when it exits. Optionally set the NVIDIA driver's own per-game knobs for the exe — frame cap, vsync, low latency — written to the same store the NVIDIA Control Panel edits (persistent, no injection, active even when Afterglow isn't running)."
-                               FontSize="11.5" Foreground="{StaticResource TextFaint}" TextWrapping="Wrap" Margin="0,2,0,0" />
-                    <Grid Margin="0,10,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox Text="{Binding NewRuleExe, UpdateSourceTrigger=PropertyChanged}" FontSize="13" />
-                        <Button Grid.Column="1" Style="{StaticResource PrimaryButton}" Content="Add rule"
-                                Command="{Binding AddRuleCommand}" Margin="10,0,0,0" />
-                    </Grid>
-                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                        <TextBlock Text="FPS cap" FontSize="12" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" />
-                        <TextBox Text="{Binding NewRuleCapFps, UpdateSourceTrigger=PropertyChanged}" Width="60"
-                                 FontSize="12.5" Margin="6,0,0,0" ToolTip="Driver frame-rate limiter; empty or 0 = off" />
-                        <TextBlock Text="Vsync" FontSize="12" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" Margin="14,0,0,0" />
-                        <ComboBox SelectedIndex="{Binding NewRuleVsyncIndex}" Width="120" Margin="6,0,0,0">
-                            <ComboBoxItem Content="Driver default" />
-                            <ComboBoxItem Content="Force on" />
-                            <ComboBoxItem Content="Force off" />
-                        </ComboBox>
-                        <CheckBox Content="Low latency (pre-rendered frames = 1)" IsChecked="{Binding NewRuleLowLatency}"
-                                  FontSize="12" VerticalAlignment="Center" Margin="14,0,0,0" />
+                        <ItemsControl ItemsSource="{Binding GameRules}" Margin="0,12,0,0" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource Bg3}" CornerRadius="4" Padding="12,6" Margin="0,2">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock FontSize="14" VerticalAlignment="Center">
+                                                <Run Text="{Binding ExecutableName, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  →  " Foreground="{StaticResource TextMuted}" /><Run Text="{Binding ProfileName, Mode=OneWay}" Foreground="{StaticResource Accent}" />
+                                            </TextBlock>
+                                            <Button Grid.Column="1" Content="Remove" Style="{StaticResource SubtleButton}"
+                                                    Command="{Binding DataContext.RemoveRuleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
-                    <ItemsControl ItemsSource="{Binding GameRules}" Margin="0,10,0,0">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="{StaticResource Bg3}" CornerRadius="7" Padding="10,7" Margin="0,3">
-                                    <Grid>
-                                        <TextBlock FontSize="12.5">
-                                            <Run Text="{Binding ExecutableName, Mode=OneWay}" FontWeight="SemiBold" /><Run Text="  →  " /><Run Text="{Binding ProfileName, Mode=OneWay}" Foreground="{StaticResource Accent}" />
-                                        </TextBlock>
-                                        <Button Content="Remove" FontSize="11" HorizontalAlignment="Right"
-                                                Style="{StaticResource GhostButton}" Padding="8,3"
-                                                Command="{Binding DataContext.RemoveRuleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                CommandParameter="{Binding}" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </Border>
+                </Border>
 
-        </StackPanel>
+            </StackPanel>
+        </Grid>
     </ScrollViewer>
 </UserControl>

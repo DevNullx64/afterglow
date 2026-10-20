@@ -4,8 +4,6 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
-    <!-- WinForms only for the battle-tested NotifyIcon (tray). -->
-    <UseWindowsForms>true</UseWindowsForms>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationIcon>Assets\afterglow.ico</ApplicationIcon>
     <AssemblyName>Afterglow</AssemblyName>
@@ -18,13 +16,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Keep the WPF namespaces unambiguous; WinForms/GDI are referenced explicitly where used. -->
-    <Using Remove="System.Windows.Forms" />
-    <Using Remove="System.Drawing" />
+    <ProjectReference Include="..\Afterglow.Core\Afterglow.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Afterglow.Core\Afterglow.Core.csproj" />
+    <!-- Compiled into the assembly: a loose file next to the exe was never
+         copied to the output, so the tray fell back to the generic icon (F-68). -->
+    <Resource Include="Assets\afterglow.ico" />
   </ItemGroup>
 
   <ItemGroup>
@@ -36,7 +34,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
   </ItemGroup>
 
 </Project>

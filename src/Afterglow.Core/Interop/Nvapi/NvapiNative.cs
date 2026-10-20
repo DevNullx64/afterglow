@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Afterglow.Core.Interop.Nvapi;
@@ -55,51 +56,58 @@ internal static class NvapiIds
     public const uint GpuSetClockBoostTable = 0x0733E009;
 }
 
+// Every struct below is blittable (unmanaged, sequential/explicit layout, arrays
+// as fixed buffers or [InlineArray] storage), so it crosses the boundary as the
+// raw bytes of the managed struct — no per-call marshalling copies and no array
+// allocations. InteropLayoutTests pins each size and field offset.
+
 #pragma warning disable CS0649 // fields assigned by native code
 
 /// <summary>Private thermal sensor block: temperatures are fixed-point °C × 256.</summary>
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
-internal struct NvThermalSensors
+internal unsafe struct NvThermalSensors
 {
+    public const int Channels = 32;
+
     public uint Version;
     public uint Mask;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
-    public int[] Reserved;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
-    public int[] Temperatures;
+    public fixed int Reserved[8];
+    public fixed int Temperatures[Channels];
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
-internal struct NvFanCoolersStatusItem
+internal unsafe struct NvFanCoolersStatusItem
 {
     public uint CoolerId;
     public uint CurrentRpm;
     public uint CurrentMinLevel;
     public uint CurrentMaxLevel;
     public uint CurrentLevel;
+    public fixed uint Reserved[8];
+}
 
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
-    public uint[] Reserved;
+[InlineArray(NvFanCoolersStatus.MaxCoolers)]
+internal struct NvFanCoolersStatusItemArray
+{
+    private NvFanCoolersStatusItem _element;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
 internal struct NvFanCoolersStatus
 {
+    public const int MaxCoolers = 32;
+
     public uint Version;
     public uint Count;
     public ulong Reserved1;
     public ulong Reserved2;
     public ulong Reserved3;
     public ulong Reserved4;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
-    public NvFanCoolersStatusItem[] Items;
+    public NvFanCoolersStatusItemArray Items;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
-internal struct NvFanCoolerControlItem
+internal unsafe struct NvFanCoolerControlItem
 {
     public uint CoolerId;
     public uint Level;
@@ -107,22 +115,25 @@ internal struct NvFanCoolerControlItem
     /// <summary>0 = auto (firmware), 1 = manual.</summary>
     public uint ControlMode;
 
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
-    public uint[] Reserved;
+    public fixed uint Reserved[8];
+}
+
+[InlineArray(NvFanCoolerControl.MaxCoolers)]
+internal struct NvFanCoolerControlItemArray
+{
+    private NvFanCoolerControlItem _element;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
-internal struct NvFanCoolerControl
+internal unsafe struct NvFanCoolerControl
 {
+    public const int MaxCoolers = 32;
+
     public uint Version;
     public uint Reserved;
     public uint Count;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
-    public uint[] Reserved2;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
-    public NvFanCoolerControlItem[] Items;
+    public fixed uint Reserved2[8];
+    public NvFanCoolerControlItemArray Items;
 }
 
 /// <summary>Core voltage rail status; explicit layout, size 0x4C, core µV at 0x28.</summary>
@@ -150,14 +161,20 @@ internal struct NvDynamicPstate
     public int Percentage;
 }
 
+[InlineArray(NvDynamicPstatesInfo.Domains)]
+internal struct NvDynamicPstateArray
+{
+    private NvDynamicPstate _element;
+}
+
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
 internal struct NvDynamicPstatesInfo
 {
+    public const int Domains = 8;
+
     public uint Version;
     public uint Flags;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
-    public NvDynamicPstate[] Utilizations;
+    public NvDynamicPstateArray Utilizations;
 }
 
 /// <summary>Thermal policy limits; temperatures fixed-point °C × 256.</summary>
@@ -172,15 +189,21 @@ internal struct NvThermalPoliciesInfoEntry
     public uint Unknown2;
 }
 
+[InlineArray(NvThermalPoliciesInfo.MaxEntries)]
+internal struct NvThermalPoliciesInfoEntryArray
+{
+    private NvThermalPoliciesInfoEntry _element;
+}
+
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
 internal struct NvThermalPoliciesInfo
 {
+    public const int MaxEntries = 4;
+
     public uint Version;
     public byte Count;
     public byte Unknown;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
-    public NvThermalPoliciesInfoEntry[] Entries;
+    public NvThermalPoliciesInfoEntryArray Entries;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
@@ -194,24 +217,28 @@ internal struct NvThermalPoliciesStatusEntry
     public uint PstateId;
 }
 
-[StructLayout(LayoutKind.Sequential, Pack = 8)]
-internal struct NvThermalPoliciesStatus
+[InlineArray(NvThermalPoliciesStatus.MaxEntries)]
+internal struct NvThermalPoliciesStatusEntryArray
 {
-    public uint Version;
-    public uint Count;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
-    public NvThermalPoliciesStatusEntry[] Entries;
+    private NvThermalPoliciesStatusEntry _element;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
-internal struct NvVoltageBoostPercent
+internal struct NvThermalPoliciesStatus
+{
+    public const int MaxEntries = 4;
+
+    public uint Version;
+    public uint Count;
+    public NvThermalPoliciesStatusEntryArray Entries;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal unsafe struct NvVoltageBoostPercent
 {
     public uint Version;
     public uint Percent;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 8)]
-    public uint[] Reserved;
+    public fixed uint Reserved[8];
 }
 
 // --- Per-point V/F curve (private clock-boost interfaces) --------------------
@@ -225,6 +252,16 @@ internal struct NvVoltageBoostPercent
 // was that broken layout, not the driver). Read AND write verified live on
 // RTX 5090 / driver 616.56.
 
+/// <summary>Shape shared by the three clock-boost tables.</summary>
+internal static class NvClockBoost
+{
+    /// <summary>Table slots in every clock-boost structure.</summary>
+    public const int Slots = 255;
+
+    /// <summary>Bytes in the live-slot bitmask (one bit per slot, rounded up).</summary>
+    public const int MaskBytes = 32;
+}
+
 /// <summary>One slot of the clock-boost mask: whether the table index is a live point.</summary>
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
 internal unsafe struct NvClockMaskEntry
@@ -234,19 +271,19 @@ internal unsafe struct NvClockMaskEntry
     public fixed byte Unknown[19];
 }
 
+[InlineArray(NvClockBoost.Slots)]
+internal struct NvClockMaskEntryArray
+{
+    private NvClockMaskEntry _element;
+}
+
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
-internal struct NvClockMasks
+internal unsafe struct NvClockMasks
 {
     public uint Version;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
-    public byte[] Mask;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
-    public byte[] Unknown1;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 255)]
-    public NvClockMaskEntry[] Clocks;
+    public fixed byte Mask[NvClockBoost.MaskBytes];
+    public fixed byte Unknown1[32];
+    public NvClockMaskEntryArray Clocks;
 }
 
 /// <summary>One stored V/F point: the driver's frequency/voltage for a table slot.</summary>
@@ -259,22 +296,25 @@ internal unsafe struct NvVfpCurveEntry
     public fixed byte Unknown[16];
 }
 
-[StructLayout(LayoutKind.Sequential, Pack = 8)]
-internal struct NvVfpCurve
+[InlineArray(NvClockBoost.Slots)]
+internal struct NvVfpCurveEntryArray
 {
-    public uint Version;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
-    public byte[] Mask;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
-    public byte[] Unknown1;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 255)]
-    public NvVfpCurveEntry[] Clocks;
+    private NvVfpCurveEntry _element;
 }
 
-/// <summary>One clock-boost-table slot: the per-point frequency delta (stored as kHz × 2).</summary>
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal unsafe struct NvVfpCurve
+{
+    public uint Version;
+    public fixed byte Mask[NvClockBoost.MaskBytes];
+    public fixed byte Unknown1[32];
+    public NvVfpCurveEntryArray Clocks;
+}
+
+/// <summary>
+/// One clock-boost-table slot: the per-point frequency delta, plain kHz on the
+/// hardware it was calibrated on (see NvapiGpu.TableDeltaPerMHz).
+/// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
 internal unsafe struct NvClockTableEntry
 {
@@ -284,106 +324,165 @@ internal unsafe struct NvClockTableEntry
     public fixed byte Unknown2[12];
 }
 
+[InlineArray(NvClockBoost.Slots)]
+internal struct NvClockTableEntryArray
+{
+    private NvClockTableEntry _element;
+}
+
 [StructLayout(LayoutKind.Sequential, Pack = 8)]
-internal struct NvClockTable
+internal unsafe struct NvClockTable
 {
     public uint Version;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
-    public byte[] Mask;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
-    public byte[] Unknown1;
-
-    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 255)]
-    public NvClockTableEntry[] Clocks;
+    public fixed byte Mask[NvClockBoost.MaskBytes];
+    public fixed byte Unknown1[32];
+    public NvClockTableEntryArray Clocks;
 }
 
 #pragma warning restore CS0649
 
 /// <summary>
-/// nvapi64.dll plumbing: resolves interfaces through the exported
-/// nvapi_QueryInterface and exposes them as delegates. A null delegate means the
-/// driver does not provide that interface.
+/// nvapi64.dll plumbing: interfaces are resolved through the exported
+/// nvapi_QueryInterface and called through unmanaged function pointers. A null
+/// pointer means the driver does not provide that interface.
 /// </summary>
-internal static class NvapiNative
+internal static unsafe partial class NvapiNative
 {
-    [DllImport("nvapi64.dll", EntryPoint = "nvapi_QueryInterface", CallingConvention = CallingConvention.Cdecl)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    private static extern nint QueryInterface(uint interfaceId);
+    private static int _initialized;
 
-    internal static T? GetDelegate<T>(uint id) where T : Delegate
+    [LibraryImport("nvapi64.dll", EntryPoint = "nvapi_QueryInterface")]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static partial nint QueryInterface(uint interfaceId);
+
+    /// <summary>Address of one NVAPI interface, or 0 when nvapi64.dll or the interface is missing.</summary>
+    internal static nint Resolve(uint id)
     {
-        nint ptr;
         try
         {
-            ptr = QueryInterface(id);
+            return QueryInterface(id);
         }
         catch (DllNotFoundException)
         {
-            return null;
+            return 0;
         }
         catch (EntryPointNotFoundException)
         {
-            return null;
+            return 0;
         }
-
-        return ptr == 0 ? null : Marshal.GetDelegateForFunctionPointer<T>(ptr);
     }
 
-    internal static uint MakeVersion<T>(int version) where T : struct =>
-        (uint)(Marshal.SizeOf<T>() | (version << 16));
+    /// <summary>
+    /// NvAPI_Initialize, run until it first succeeds and then never again in
+    /// this process: nothing calls NvAPI_Unload, so a successful initialization
+    /// stays valid for the process lifetime and repeating it only bumps the
+    /// driver's reference count. A failure is not cached — the next caller
+    /// retries, exactly as before. <see cref="NvapiStatus.LibraryNotFound"/>
+    /// when nvapi64.dll (or its initialize interface) is absent.
+    /// </summary>
+    internal static NvapiStatus EnsureInitialized()
+    {
+        if (Volatile.Read(ref _initialized) != 0)
+        {
+            return NvapiStatus.Ok;
+        }
 
-    // Delegate shapes -----------------------------------------------------------
+        var initialize = (delegate* unmanaged[Cdecl]<NvapiStatus>)Resolve(NvapiIds.Initialize);
+        if (initialize == null)
+        {
+            return NvapiStatus.LibraryNotFound;
+        }
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus InitializeDelegate();
+        var status = initialize();
+        if (status == NvapiStatus.Ok)
+        {
+            Volatile.Write(ref _initialized, 1);
+        }
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus EnumPhysicalGpusDelegate([Out] nint[] handles, out int count);
+        return status;
+    }
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal unsafe delegate NvapiStatus GetFullNameDelegate(nint gpu, byte* name);
+    /// <summary>NVAPI struct version word: sizeof(struct) | (version &lt;&lt; 16).</summary>
+    internal static uint MakeVersion<T>(int version) where T : unmanaged =>
+        (uint)(sizeof(T) | (version << 16));
+}
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus GetBusIdDelegate(nint gpu, out uint busId);
+/// <summary>
+/// The NVAPI GPU interface table. Interface addresses are process-wide (the
+/// same for every GPU), so the table is resolved exactly once per process —
+/// on first use, which is always after NvAPI_Initialize succeeded, because
+/// only <see cref="NvapiApi"/> and the <see cref="NvapiGpu"/> instances it
+/// hands out touch it.
+/// </summary>
+internal sealed unsafe class NvapiGpuFunctions
+{
+    private static readonly Lazy<NvapiGpuFunctions> Instance = new(() => new NvapiGpuFunctions());
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus GetTachReadingDelegate(nint gpu, out int rpm);
+    internal readonly delegate* unmanaged[Cdecl]<nint*, int*, NvapiStatus> EnumPhysicalGpus =
+        (delegate* unmanaged[Cdecl]<nint*, int*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.EnumPhysicalGpus);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus GetThermalSensorsDelegate(nint gpu, ref NvThermalSensors sensors);
+    internal readonly delegate* unmanaged[Cdecl]<nint, byte*, NvapiStatus> GetFullName =
+        (delegate* unmanaged[Cdecl]<nint, byte*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuGetFullName);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus GetDynamicPstatesDelegate(nint gpu, ref NvDynamicPstatesInfo info);
+    internal readonly delegate* unmanaged[Cdecl]<nint, uint*, NvapiStatus> GetBusId =
+        (delegate* unmanaged[Cdecl]<nint, uint*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuGetBusId);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus FanCoolersGetStatusDelegate(nint gpu, ref NvFanCoolersStatus status);
+    internal readonly delegate* unmanaged[Cdecl]<nint, int*, NvapiStatus> GetTachReading =
+        (delegate* unmanaged[Cdecl]<nint, int*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuGetTachReading);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus FanCoolersControlDelegate(nint gpu, ref NvFanCoolerControl control);
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvThermalSensors*, NvapiStatus> GetThermalSensors =
+        (delegate* unmanaged[Cdecl]<nint, NvThermalSensors*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuGetThermalSensors);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus RestoreCoolerSettingsDelegate(nint gpu, nint coolerIndexes, uint indexCount);
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvDynamicPstatesInfo*, NvapiStatus> GetDynamicPstates =
+        (delegate* unmanaged[Cdecl]<nint, NvDynamicPstatesInfo*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuGetDynamicPstatesInfoEx);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus VoltRailsGetStatusDelegate(nint gpu, ref NvVoltRailsStatus status);
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvFanCoolersStatus*, NvapiStatus> FanCoolersGetStatus =
+        (delegate* unmanaged[Cdecl]<nint, NvFanCoolersStatus*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuClientFanCoolersGetStatus);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus ThermalPoliciesGetInfoDelegate(nint gpu, ref NvThermalPoliciesInfo info);
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvFanCoolerControl*, NvapiStatus> FanCoolersGetControl =
+        (delegate* unmanaged[Cdecl]<nint, NvFanCoolerControl*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuClientFanCoolersGetControl);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus ThermalPoliciesStatusDelegate(nint gpu, ref NvThermalPoliciesStatus status);
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvFanCoolerControl*, NvapiStatus> FanCoolersSetControl =
+        (delegate* unmanaged[Cdecl]<nint, NvFanCoolerControl*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuClientFanCoolersSetControl);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus VoltageBoostDelegate(nint gpu, ref NvVoltageBoostPercent boost);
+    /// <summary>(gpu, coolerIndexes, indexCount); null/0 restores every cooler.</summary>
+    internal readonly delegate* unmanaged[Cdecl]<nint, uint*, uint, NvapiStatus> RestoreCoolerSettings =
+        (delegate* unmanaged[Cdecl]<nint, uint*, uint, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuRestoreCoolerSettings);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus GetVfpCurveDelegate(nint gpu, ref NvVfpCurve curve);
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvVoltRailsStatus*, NvapiStatus> VoltRailsGetStatus =
+        (delegate* unmanaged[Cdecl]<nint, NvVoltRailsStatus*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuClientVoltRailsGetStatus);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus ClockMasksDelegate(nint gpu, ref NvClockMasks masks);
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvThermalPoliciesInfo*, NvapiStatus> ThermalPoliciesGetInfo =
+        (delegate* unmanaged[Cdecl]<nint, NvThermalPoliciesInfo*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuClientThermalPoliciesGetInfo);
 
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    internal delegate NvapiStatus ClockTableDelegate(nint gpu, ref NvClockTable table);
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvThermalPoliciesStatus*, NvapiStatus> ThermalPoliciesGetStatus =
+        (delegate* unmanaged[Cdecl]<nint, NvThermalPoliciesStatus*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuClientThermalPoliciesGetStatus);
+
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvThermalPoliciesStatus*, NvapiStatus> ThermalPoliciesSetStatus =
+        (delegate* unmanaged[Cdecl]<nint, NvThermalPoliciesStatus*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuClientThermalPoliciesSetStatus);
+
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvVoltageBoostPercent*, NvapiStatus> GetVoltageBoost =
+        (delegate* unmanaged[Cdecl]<nint, NvVoltageBoostPercent*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuGetCoreVoltageBoostPercent);
+
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvVoltageBoostPercent*, NvapiStatus> SetVoltageBoost =
+        (delegate* unmanaged[Cdecl]<nint, NvVoltageBoostPercent*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuSetCoreVoltageBoostPercent);
+
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvVfpCurve*, NvapiStatus> GetVfpCurve =
+        (delegate* unmanaged[Cdecl]<nint, NvVfpCurve*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuGetVfpCurve);
+
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvClockMasks*, NvapiStatus> GetClockBoostMask =
+        (delegate* unmanaged[Cdecl]<nint, NvClockMasks*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuGetClockBoostMask);
+
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvClockTable*, NvapiStatus> GetClockBoostTable =
+        (delegate* unmanaged[Cdecl]<nint, NvClockTable*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuGetClockBoostTable);
+
+    internal readonly delegate* unmanaged[Cdecl]<nint, NvClockTable*, NvapiStatus> SetClockBoostTable =
+        (delegate* unmanaged[Cdecl]<nint, NvClockTable*, NvapiStatus>)NvapiNative.Resolve(NvapiIds.GpuSetClockBoostTable);
+
+    private NvapiGpuFunctions()
+    {
+    }
+
+    /// <summary>The process-wide table (resolved on first access, thread-safe, exactly once).</summary>
+    internal static NvapiGpuFunctions Resolved => Instance.Value;
 }

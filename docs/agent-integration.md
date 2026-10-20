@@ -31,7 +31,9 @@ Tools:
 | `get_telemetry` | Full sensor snapshot: clocks, temps (incl. memory junction), instantaneous power, fans, throttle reasons, throttle headroom |
 | `apply_tuning` | Apply core/mem offsets, power limit, clock lock (undervolt), voltage boost, fan duty — clamped + verified, per-knob results |
 | `reset_defaults` | The safe abort: everything back to driver defaults |
-| `run_stress` | Error-checked burn for N seconds; returns `stable` (bit-exact + no TDR), dispatch throughput (relative perf score), and peak temp/power/clock during the burn |
+| `run_stress` | Error-checked burn for N seconds; returns `stable` (bit-exact + no TDR), dispatch throughput (relative perf score), and peak temp/power/clock during the burn. `pattern` selects `sustained` (default), `transitions`, or `excursions` |
+| `find_stable_offset` | The guided stability stepper as one autonomous call: steps the core offset up, burn-testing each step, backs off on the first failure, and runs a longer confirmation burn. Blocks until finished (several minutes), honours a `max_minutes` budget (restores the starting offset on timeout), and leaves the confirmed stable offset applied. Requires elevation |
+| `run_vram_test` | Full-capacity VRAM test: fills as much of the card's memory as the OS safely allows with a verified pattern (alternate rounds inverted). Returns coverage, full rounds, and error count — any error means the current memory clocks are unstable |
 | `list_profiles` / `save_profile` / `apply_profile` | Persist and reuse results |
 
 ### The autonomous tuning loop
@@ -53,8 +55,10 @@ Watch `peak_gpu_temp_c` / `peak_power_w` between steps and stop early on thermal
 the same signal a human tuner uses. Afterglow's TDR watchdog remains armed the whole time,
 and a human can always pull the plug with Ctrl+Alt+R.
 
-Note: the in-app Stability page's guided stepper implements this exact loop natively if you
-just want the result without an agent.
+Note: `find_stable_offset` packages this whole loop into a single blocking MCP call (step
+up, back off on failure, confirmation burn, restore-on-timeout), so an agent that just
+wants the result need not hand-build steps 3-4. The in-app Stability page's guided stepper
+is the same loop natively.
 
 ## 2. Plain CLI with `--json`
 
@@ -65,9 +69,21 @@ afterglow-cli caps --json          # capabilities/ranges
 afterglow-cli monitor --once --json# one telemetry snapshot per GPU
 afterglow-cli get --json           # currently applied values
 afterglow-cli set --core-offset 150 --mem-offset 500   # human-readable per-knob results, exit code 0/1
-afterglow-cli stress --seconds 60  # exit code 0 = stable, 1 = errors/reset
+afterglow-cli stress --seconds 60  # exit code 0 = stable, 1 = errors/reset/aborted/no verdict (no work, or no cycle completed)
 afterglow-cli reset
 ```
+
+**Exit codes.** `0` = success (for the test commands: the run completed and passed).
+`1` = the operation ran and failed — for a stability test that means computation
+errors, a driver reset, or a run that was aborted before its window elapsed.
+`2` = **the arguments were rejected and nothing ran at all** — an unknown option,
+an unparseable or out-of-range value, an unknown `--pattern`, or a `--gpu` index
+that is not a whole number. `3` = the command ran but produced no usable result
+(for example `vfcurve` on a GPU whose driver reports no core voltage).
+
+Treat `2` as a bug in the invocation, never as a hardware verdict: no GPU was
+tested, so it says nothing about stability. Only `1` from a test command that
+actually ran means "unstable".
 
 ## Safety notes for agent authors
 

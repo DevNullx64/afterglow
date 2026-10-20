@@ -1,68 +1,91 @@
-using System.Windows;
+﻿using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Afterglow.Core.Interop.Nvml;
 using Afterglow.Core.Telemetry;
 
 namespace Afterglow.App.ViewModels;
 
-public partial class DashboardViewModel : ObservableObject
+public partial class DashboardViewModel : ObservableObject, ILivePage
 {
+    /// <summary>The longest window any dashboard graph draws (the 10-minute graphs at 1 s polling).</summary>
+    private const int SeriesCapacity = 600;
+
     private readonly AppServices _services;
     private uint _deviceIndex;
+    private volatile bool _isLive;
+
+    /// <inheritdoc />
+    public bool IsLive
+    {
+        get => _isLive;
+        set
+        {
+            if (_isLive == value)
+            {
+                return;
+            }
+
+            _isLive = value;
+            if (value)
+            {
+                RefreshFromHistory();
+            }
+        }
+    }
 
     // Hero values
-    [ObservableProperty] private string _coreClockText = "—";
-    [ObservableProperty] private string _memClockText = "—";
-    [ObservableProperty] private string _tempText = "—";
-    [ObservableProperty] private string _hotSpotText = "—";
-    [ObservableProperty] private string _memJunctionText = "—";
-    [ObservableProperty] private string _powerText = "—";
-    [ObservableProperty] private string _powerLimitText = string.Empty;
-    [ObservableProperty] private string _utilText = "—";
-    [ObservableProperty] private string _vramText = "—";
-    [ObservableProperty] private double _vramFraction;
-    [ObservableProperty] private string _fanText = "—";
-    [ObservableProperty] private string _fanRpmText = string.Empty;
-    [ObservableProperty] private string _voltageText = "—";
-    [ObservableProperty] private string _perfStateText = string.Empty;
-    [ObservableProperty] private string _throttleMarginText = string.Empty;
-    [ObservableProperty] private string _energyText = string.Empty;
+    [ObservableProperty] public partial string CoreClockText { get; set; } = "—";
+    [ObservableProperty] public partial string MemClockText { get; set; } = "—";
+    [ObservableProperty] public partial string TempText { get; set; } = "—";
+    [ObservableProperty] public partial string HotSpotText { get; set; } = "—";
+    [ObservableProperty] public partial string MemJunctionText { get; set; } = "—";
+    [ObservableProperty] public partial string PowerText { get; set; } = "—";
+    [ObservableProperty] public partial string PowerLimitText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string UtilText { get; set; } = "—";
+    [ObservableProperty] public partial string VramText { get; set; } = "—";
+    [ObservableProperty] public partial double VramFraction { get; set; }
+    [ObservableProperty] public partial string FanText { get; set; } = "—";
+    [ObservableProperty] public partial string FanRpmText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string VoltageText { get; set; } = "—";
+    [ObservableProperty] public partial string PerfStateText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string ThrottleMarginText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string EnergyText { get; set; } = string.Empty;
 
     // FPS strip
-    [ObservableProperty] private bool _hasFps;
-    [ObservableProperty] private string _fpsAppText = string.Empty;
-    [ObservableProperty] private string _fpsText = "—";
-    [ObservableProperty] private string _fpsLowsText = string.Empty;
-    [ObservableProperty] private IReadOnlyList<double>? _frametimeSeries;
+    [ObservableProperty] public partial bool HasFps { get; set; }
+    [ObservableProperty] public partial string FpsAppText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string FpsText { get; set; } = "—";
+    [ObservableProperty] public partial string FpsLowsText { get; set; } = string.Empty;
+    [ObservableProperty] public partial IReadOnlyList<double>? FrametimeSeries { get; set; }
 
     // Graph series
-    [ObservableProperty] private IReadOnlyList<double>? _coreClockSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _tempSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _hotSpotSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _memJunctionSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _powerSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _utilSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _vramSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _fanSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _voltageSeries;
+    [ObservableProperty] public partial IReadOnlyList<double>? CoreClockSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? TempSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? HotSpotSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? MemJunctionSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? PowerSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? UtilSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? VramSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? FanSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? VoltageSeries { get; set; }
 
     /// <summary>Timestamps for the telemetry series above (all share the snapshot ring).</summary>
-    [ObservableProperty] private IReadOnlyList<DateTimeOffset>? _seriesTimes;
+    [ObservableProperty] public partial IReadOnlyList<DateTimeOffset>? SeriesTimes { get; set; }
 
     // Expanded tile (click a hero card to open its full 10-minute graph)
-    [ObservableProperty] private string? _expandedMetric;
-    [ObservableProperty] private string _expandedTitle = string.Empty;
-    [ObservableProperty] private string _expandedUnit = string.Empty;
-    [ObservableProperty] private string _expandedLabel = string.Empty;
-    [ObservableProperty] private string _expandedLabel2 = string.Empty;
-    [ObservableProperty] private IReadOnlyList<double>? _expandedSeries;
-    [ObservableProperty] private IReadOnlyList<double>? _expandedSeries2;
-    [ObservableProperty] private IReadOnlyList<DateTimeOffset>? _expandedTimes;
-    [ObservableProperty] private System.Windows.Media.Brush? _expandedStroke;
-    [ObservableProperty] private System.Windows.Media.Brush? _expandedStroke2;
-    [ObservableProperty] private double _expandedFixedMin = double.NaN;
-    [ObservableProperty] private double _expandedFixedMax = double.NaN;
-    [ObservableProperty] private int _expandedCapacity = 600;
+    [ObservableProperty] public partial string? ExpandedMetric { get; set; }
+    [ObservableProperty] public partial string ExpandedTitle { get; set; } = string.Empty;
+    [ObservableProperty] public partial string ExpandedUnit { get; set; } = string.Empty;
+    [ObservableProperty] public partial string ExpandedLabel { get; set; } = string.Empty;
+    [ObservableProperty] public partial string ExpandedLabel2 { get; set; } = string.Empty;
+    [ObservableProperty] public partial IReadOnlyList<double>? ExpandedSeries { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<double>? ExpandedSeries2 { get; set; }
+    [ObservableProperty] public partial IReadOnlyList<DateTimeOffset>? ExpandedTimes { get; set; }
+    [ObservableProperty] public partial System.Windows.Media.Brush? ExpandedStroke { get; set; }
+    [ObservableProperty] public partial System.Windows.Media.Brush? ExpandedStroke2 { get; set; }
+    [ObservableProperty] public partial double ExpandedFixedMin { get; set; } = double.NaN;
+    [ObservableProperty] public partial double ExpandedFixedMax { get; set; } = double.NaN;
+    [ObservableProperty] public partial int ExpandedCapacity { get; set; } = 600;
 
     public bool IsExpanded => ExpandedMetric is not null;
 
@@ -105,13 +128,13 @@ public partial class DashboardViewModel : ObservableObject
         switch (key)
         {
             case "clock":
-                ExpandedTitle = "CORE CLOCK — 10 MIN";
+                ExpandedTitle = "Core clock · last 10 min";
                 ExpandedUnit = "MHz";
                 ExpandedSeries = CoreClockSeries;
                 ExpandedStroke = SeriesBrush("SeriesClock");
                 break;
             case "temp":
-                ExpandedTitle = "TEMPERATURES — 10 MIN";
+                ExpandedTitle = "Temperatures · last 10 min";
                 ExpandedUnit = "°C";
                 ExpandedSeries = TempSeries;
                 ExpandedSeries2 = MemJunctionSeries;
@@ -119,17 +142,17 @@ public partial class DashboardViewModel : ObservableObject
                 ExpandedStroke2 = SeriesBrush("SeriesVram");
                 ExpandedLabel = "GPU";
                 ExpandedLabel2 = "mem";
-                ExpandedFixedMin = 25;
-                ExpandedFixedMax = 95;
+                ExpandedFixedMin = 20;
+                ExpandedFixedMax = 100;
                 break;
             case "power":
-                ExpandedTitle = "BOARD POWER — 10 MIN";
+                ExpandedTitle = "Board power · last 10 min";
                 ExpandedUnit = "W";
                 ExpandedSeries = PowerSeries;
                 ExpandedStroke = SeriesBrush("SeriesPower");
                 break;
             case "util":
-                ExpandedTitle = "GPU LOAD — 10 MIN";
+                ExpandedTitle = "GPU load · last 10 min";
                 ExpandedUnit = "%";
                 ExpandedSeries = UtilSeries;
                 ExpandedStroke = SeriesBrush("SeriesUtil");
@@ -137,14 +160,14 @@ public partial class DashboardViewModel : ObservableObject
                 ExpandedFixedMax = 100;
                 break;
             case "vram":
-                ExpandedTitle = "VRAM USED — 10 MIN";
+                ExpandedTitle = "VRAM used · last 10 min";
                 ExpandedUnit = "GB";
                 ExpandedSeries = VramSeries;
                 ExpandedStroke = SeriesBrush("SeriesVram");
                 ExpandedFixedMin = 0;
                 break;
             case "fan":
-                ExpandedTitle = "FAN DUTY — 10 MIN";
+                ExpandedTitle = "Fan duty · last 10 min";
                 ExpandedUnit = "%";
                 ExpandedSeries = FanSeries;
                 ExpandedStroke = SeriesBrush("SeriesFan");
@@ -152,13 +175,13 @@ public partial class DashboardViewModel : ObservableObject
                 ExpandedFixedMax = 100;
                 break;
             case "voltage":
-                ExpandedTitle = "CORE VOLTAGE — 10 MIN";
+                ExpandedTitle = "Core voltage · last 10 min";
                 ExpandedUnit = "mV";
                 ExpandedSeries = VoltageSeries;
                 ExpandedStroke = SeriesBrush("SeriesVoltage");
                 break;
             case "fps":
-                ExpandedTitle = "FRAMETIMES — LAST 360 FRAMES";
+                ExpandedTitle = "Frametimes · last 360 frames";
                 ExpandedUnit = "ms";
                 ExpandedSeries = FrametimeSeries;
                 ExpandedStroke = SeriesBrush("SeriesFps");
@@ -184,13 +207,26 @@ public partial class DashboardViewModel : ObservableObject
     public void RebindGpu()
     {
         _deviceIndex = !_services.DemoMode && _services.SelectedGpu is { } gpu ? gpu.Index : 0;
-        UpdateSeries();
-        RefreshExpanded();
+        if (_isLive)
+        {
+            RefreshFromHistory();
+        }
+    }
+
+    /// <summary>Catch up at once (page opened, window restored, GPU switched) instead of waiting a tick.</summary>
+    private void RefreshFromHistory()
+    {
+        if (_services.Telemetry.TryHistoryFor(_deviceIndex)?.Latest is { } latest)
+        {
+            Update(latest);
+        }
     }
 
     private void OnSnapshot(GpuSnapshot snapshot)
     {
-        if (snapshot.DeviceIndex != _deviceIndex)
+        // Hidden in the tray or on another page: nothing to draw, so no
+        // dispatcher hop, no string formatting, no series copies.
+        if (!_isLive || snapshot.DeviceIndex != _deviceIndex)
         {
             return;
         }
@@ -217,12 +253,30 @@ public partial class DashboardViewModel : ObservableObject
         VoltageText = s.CoreVoltageMv is double v ? $"{v:F0}" : "—";
         PerfStateText = s.PerfState is uint ps ? $"P{ps}" : string.Empty;
         ThrottleMarginText = s.ThrottleMarginC is int m ? $"{m}°C headroom to throttle" : string.Empty;
-        EnergyText = s.EnergyWh is double e ? $"{e:F1} Wh session energy" : string.Empty;
+        // The counter is cumulative since the driver loaded (see
+        // GpuSnapshot.EnergyWh), not since this Afterglow session started —
+        // calling it "session energy" invited the reading that it measured this
+        // sitting, when on a machine up for days it is a far larger number.
+        EnergyText = s.EnergyWh is double e ? $"{e:F1} Wh since driver load" : string.Empty;
 
+        // These two were the only tiles whose assignment was conditional; their
+        // eleven neighbours all fall to "—" when the sensor goes quiet. So one
+        // lost tick after a TDR, or switching the selector from a dGPU with fans
+        // to an iGPU without, left the PREVIOUS card's VRAM and fan duty on
+        // screen next to live telemetry for the new one — a reading from
+        // hardware that was not being read.
         if (s is { VramUsedBytes: ulong used, VramTotalBytes: ulong total } && total > 0)
         {
-            VramText = $"{used / 1024.0 / 1024.0 / 1024.0:F1} / {total / 1024.0 / 1024.0 / 1024.0:F0} GB";
+            // On a shared-memory iGPU the figure is the GPU's allocatable
+            // budget carved from system RAM, not dedicated VRAM — say so.
+            string shared = s.MemoryIsShared == true ? " shared" : "";
+            VramText = $"{used / 1024.0 / 1024.0 / 1024.0:F1} / {total / 1024.0 / 1024.0 / 1024.0:F0} GB{shared}";
             VramFraction = (double)used / total;
+        }
+        else
+        {
+            VramText = "—";
+            VramFraction = 0;
         }
 
         if (s.FanPercents is { Count: > 0 } fans)
@@ -231,6 +285,11 @@ public partial class DashboardViewModel : ObservableObject
             FanRpmText = s.FanRpms is { Count: > 0 } rpms
                 ? string.Join("  ", rpms.Select(r => $"{r}"))+" RPM"
                 : string.Join("/", fans.Select(f => $"{f}%"));
+        }
+        else
+        {
+            FanText = "—";
+            FanRpmText = string.Empty;
         }
 
         // Throttle chips
@@ -245,7 +304,7 @@ public partial class DashboardViewModel : ObservableObject
 
     private void UpdateSeries()
     {
-        var history = _services.Telemetry.HistoryFor(_deviceIndex).GetAll();
+        var history = _services.Telemetry.TryHistoryFor(_deviceIndex)?.GetLatest(SeriesCapacity) ?? [];
         if (history.Length == 0)
         {
             return;
@@ -275,7 +334,13 @@ public partial class DashboardViewModel : ObservableObject
         var stats = _services.FrameMetrics.GetTargetStats();
         if (stats is null)
         {
+            // Blank the values, not just the visibility flag. A binding or a
+            // layout that still shows this row would otherwise render the last
+            // app's FPS indefinitely — the same stale reading the tiles above
+            // were fixed for.
             HasFps = false;
+            FpsAppText = string.Empty;
+            FpsText = "—";
             return;
         }
 

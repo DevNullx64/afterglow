@@ -3,57 +3,66 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:Afterglow.App.Views">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="24,18,24,24" MaxWidth="900" HorizontalAlignment="Left">
+        <Grid Margin="24,20,24,24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="1000" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
 
-            <TextBlock Text="Stability" Style="{StaticResource PageTitle}" />
-            <TextBlock Style="{StaticResource PageSubtitle}"
-                       Text="Built-in burn test with bit-exact error detection, and a guided stepper that finds your stable overclock — the open-method alternative to closed OC scanners." />
+                <TextBlock Text="Stability" Style="{StaticResource PageTitle}" />
+                <TextBlock Style="{StaticResource PageSubtitle}"
+                           Text="A burn test that checks every result bit for bit, a VRAM test, and a guided stepper that finds your stable overclock: an open alternative to closed OC scanners." />
 
-            <!-- Burn test -->
-            <Border Style="{StaticResource Card}" Margin="0,14,0,0">
-                <StackPanel>
-                    <TextBlock Text="Burn test" FontWeight="SemiBold" FontSize="13.5" />
-                    <TextBlock Text="Deterministic compute workload; any bit that comes back different means your GPU is miscalculating (unstable clocks). Driver resets (TDR) are caught and reported."
-                               FontSize="11.5" Foreground="{StaticResource TextFaint}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                <!-- Burn test -->
+                <Border Style="{StaticResource Card}" Margin="0,20,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Burn test" Style="{StaticResource SectionTitle}" />
+                        <TextBlock Style="{StaticResource SectionDescription}"
+                                   Text="Runs a fixed compute workload and checks every answer. A single wrong bit means the GPU is miscalculating at these clocks. Driver resets (TDR) are caught and reported too." />
 
-                    <Grid Margin="0,12,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="170" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Pattern" FontSize="12.5" VerticalAlignment="Center" />
-                        <ComboBox Grid.Column="1" SelectedIndex="{Binding PatternIndex}" MaxWidth="320"
-                                  HorizontalAlignment="Left"
-                                  IsEnabled="{Binding StressRunning, Converter={x:Static views:Converters.InverseBool}}">
-                            <ComboBoxItem Content="Sustained burn — full load" />
-                            <ComboBoxItem Content="Transition cycling — load/idle clock switches" />
-                            <ComboBoxItem Content="Boost excursions — bursty desktop-style load" />
-                        </ComboBox>
-                    </Grid>
-                    <TextBlock Text="{Binding PatternDescription}" FontSize="11.5" Foreground="{StaticResource TextFaint}"
-                               TextWrapping="Wrap" Margin="170,6,0,0" />
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="220" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="12" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
 
-                    <Grid Margin="0,12,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="170" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="190" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Load intensity" FontSize="12.5" VerticalAlignment="Center" />
-                        <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="512" Maximum="8192"
-                                Value="{Binding Intensity}" TickFrequency="256" IsSnapToTickEnabled="True"
-                                VerticalAlignment="Center" IsEnabled="{Binding StressRunning, Converter={x:Static views:Converters.InverseBool}}" />
-                        <TextBlock Grid.Column="2" Text="{Binding IntensityLabel}" FontSize="12.5"
-                                   HorizontalAlignment="Right" VerticalAlignment="Center"
-                                   Foreground="{StaticResource TextMuted}" />
-                    </Grid>
+                            <TextBlock Text="Pattern" Style="{StaticResource FieldLabel}" />
+                            <ComboBox Grid.Column="1" Grid.ColumnSpan="2" SelectedIndex="{Binding PatternIndex}" Margin="12,0,0,0"
+                                      HorizontalAlignment="Left" MinWidth="360" AutomationProperties.Name="Burn pattern"
+                                      IsEnabled="{Binding StressRunning, Converter={x:Static views:Converters.InverseBool}}">
+                                <ComboBoxItem Content="Sustained burn: full load" />
+                                <ComboBoxItem Content="Transition cycling: load/idle clock switches" />
+                                <ComboBoxItem Content="Boost excursions: bursty, desktop-style load" />
+                            </ComboBox>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding PatternDescription}"
+                                       Style="{StaticResource FieldHint}" Margin="12,6,0,0" />
 
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                        <Button Style="{StaticResource PrimaryButton}" MinWidth="130" Command="{Binding ToggleStressCommand}">
-                            <Button.Content>
+                            <TextBlock Grid.Row="3" Text="Load intensity" Style="{StaticResource FieldLabel}" />
+                            <Slider Grid.Row="3" Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="512" Maximum="8192"
+                                    Margin="12,0,20,0" AutomationProperties.Name="Burn intensity, iterations per dispatch"
+                                    Value="{Binding Intensity}" TickFrequency="256" IsSnapToTickEnabled="True"
+                                    IsEnabled="{Binding StressRunning, Converter={x:Static views:Converters.InverseBool}}" />
+                            <TextBlock Grid.Row="3" Grid.Column="2" Text="{Binding IntensityLabel}" Style="{StaticResource ValueLabel}"
+                                       FontWeight="Normal" Foreground="{StaticResource TextMuted}" />
+                        </Grid>
+
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button Style="{StaticResource PrimaryButton}" MinWidth="130" VerticalAlignment="Center"
+                                    Command="{Binding ToggleStressCommand}">
                                 <TextBlock>
                                     <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource InheritingText}">
                                             <Setter Property="Text" Value="Start burn" />
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding StressRunning}" Value="True">
@@ -63,46 +72,53 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
-                            </Button.Content>
-                        </Button>
-                        <TextBlock Text="{Binding StressElapsedText}" FontSize="15" FontWeight="SemiBold"
-                                   VerticalAlignment="Center" Margin="16,0,0,0" FontFamily="{StaticResource MonoFont}" />
-                        <TextBlock Text="{Binding StressRateText}" FontSize="12" Foreground="{StaticResource TextMuted}"
-                                   VerticalAlignment="Center" Margin="12,0,0,0" />
+                            </Button>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0">
+                                <TextBlock Text="{Binding StressElapsedText}" FontSize="16" FontWeight="SemiBold"
+                                           FontFamily="{StaticResource MonoFont}" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding StressRateText}" Style="{StaticResource Caption}"
+                                           VerticalAlignment="Center" Margin="12,0,0,0" />
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Live sensor line while it runs (and the last reading after). -->
+                        <Border Style="{StaticResource InsetPanel}" Margin="0,16,0,0" Padding="12,8"
+                                Visibility="{Binding LiveStatsText, Converter={x:Static views:Converters.NonEmptyToVisibility}}">
+                            <TextBlock Text="{Binding LiveStatsText}" FontFamily="{StaticResource MonoFont}" FontSize="13" />
+                        </Border>
+
+                        <TextBlock Text="{Binding StressStatusText}" Margin="0,12,0,0">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource StatusText}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding StressFailed}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource Bad}" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                     </StackPanel>
+                </Border>
 
-                    <TextBlock Text="{Binding LiveStatsText}" FontSize="12.5" Margin="0,10,0,0"
-                               FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource SeriesFps}" />
+                <!-- VRAM test -->
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <StackPanel>
+                        <TextBlock Text="VRAM test" Style="{StaticResource SectionTitle}" />
+                        <TextBlock Style="{StaticResource SectionDescription}"
+                                   Text="Fills as much video memory as Windows safely allows (within the DXGI budget, so nothing gets paged out) and checks every value on the GPU. Any error means the memory offset is unstable; this catches what the burn test can't." />
 
-                    <TextBlock Text="{Binding StressStatusText}" FontSize="12.5" Margin="0,10,0,0" TextWrapping="Wrap">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-                                <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding StressFailed}" Value="True">
-                                        <Setter Property="Foreground" Value="{StaticResource Bad}" />
-                                        <Setter Property="FontWeight" Value="SemiBold" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                </StackPanel>
-            </Border>
-
-            <!-- VRAM test -->
-            <Border Style="{StaticResource Card}" Margin="0,10,0,0">
-                <StackPanel>
-                    <TextBlock Text="VRAM test" FontWeight="SemiBold" FontSize="13.5" />
-                    <TextBlock Text="Fills as much of the card's memory as the OS safely allows (staying inside the DXGI budget, so nothing is silently paged out) and verifies every element on the GPU. Any error means the memory offset is unstable — this catches what the bandwidth burn can't."
-                               FontSize="11.5" Foreground="{StaticResource TextFaint}" TextWrapping="Wrap" Margin="0,2,0,0" />
-
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                        <Button Style="{StaticResource PrimaryButton}" MinWidth="150" Command="{Binding ToggleVramCommand}">
-                            <Button.Content>
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button Style="{StaticResource PrimaryButton}" MinWidth="150" VerticalAlignment="Center"
+                                    Command="{Binding ToggleVramCommand}">
                                 <TextBlock>
                                     <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource InheritingText}">
                                             <Setter Property="Text" Value="Start VRAM test" />
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding VramRunning}" Value="True">
@@ -112,72 +128,81 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
-                            </Button.Content>
-                        </Button>
-                        <TextBlock Text="{Binding VramStatsText}" FontSize="12.5" VerticalAlignment="Center"
-                                   Margin="16,0,0,0" FontFamily="{StaticResource MonoFont}"
-                                   Foreground="{StaticResource SeriesFps}" />
+                            </Button>
+                            <TextBlock Grid.Column="1" Text="{Binding VramStatsText}" FontFamily="{StaticResource MonoFont}"
+                                       FontSize="13" VerticalAlignment="Center" Margin="16,0,0,0" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <TextBlock Text="{Binding VramStatusText}" Margin="0,12,0,0">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource StatusText}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding VramFailed}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource Bad}" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                     </StackPanel>
+                </Border>
 
-                    <TextBlock Text="{Binding VramStatusText}" FontSize="12.5" Margin="0,10,0,0" TextWrapping="Wrap">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
-                                <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding VramFailed}" Value="True">
-                                        <Setter Property="Foreground" Value="{StaticResource Bad}" />
-                                        <Setter Property="FontWeight" Value="SemiBold" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                </StackPanel>
-            </Border>
+                <!-- Stepper -->
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Find my stable overclock" Style="{StaticResource SectionTitle}" />
+                        <TextBlock Style="{StaticResource SectionDescription}"
+                                   Text="Raises the core offset step by step and burn-tests each step. At the first failure it backs off and runs a longer confirmation, then leaves the confirmed stable offset applied." />
 
-            <!-- Stepper -->
-            <Border Style="{StaticResource Card}" Margin="0,10,0,0">
-                <StackPanel>
-                    <TextBlock Text="Find my stable overclock (guided stepper)" FontWeight="SemiBold" FontSize="13.5" />
-                    <TextBlock Text="Steps the core offset up, burn-testing each step; the first failure backs off and runs a longer confirmation. Leaves the confirmed stable offset applied."
-                               FontSize="11.5" Foreground="{StaticResource TextFaint}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                        <ContentControl Style="{StaticResource WarnBanner}" Content="{Binding StepGateText}" Margin="0,12,0,0"
+                                        Visibility="{Binding CanStep, Converter={x:Static views:Converters.InverseBoolToVisibility}}" />
 
-                    <Border Background="#33E8B33C" CornerRadius="8" Padding="12,8" Margin="0,10,0,0"
-                            Visibility="{Binding CanStep, Converter={x:Static views:Converters.InverseBoolToVisibility}}">
-                        <TextBlock Text="{Binding StepGateText}" Foreground="{StaticResource Warn}" FontSize="12" TextWrapping="Wrap" />
-                    </Border>
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="220" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="110" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="4" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="4" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
 
-                    <UniformGrid Columns="3" Margin="0,12,0,0">
-                        <StackPanel Margin="0,0,14,0">
-                            <TextBlock FontSize="12" Foreground="{StaticResource TextMuted}">
-                                <Run Text="Step: +" /><Run Text="{Binding StepMHz, StringFormat=F0}" /><Run Text=" MHz" />
-                            </TextBlock>
-                            <Slider Style="{StaticResource TuneSlider}" Minimum="10" Maximum="60" Value="{Binding StepMHz}"
-                                    TickFrequency="5" IsSnapToTickEnabled="True" Margin="0,8,0,0" />
-                        </StackPanel>
-                        <StackPanel Margin="0,0,14,0">
-                            <TextBlock FontSize="12" Foreground="{StaticResource TextMuted}">
-                                <Run Text="Per step: " /><Run Text="{Binding SecondsPerStep, StringFormat=F0}" /><Run Text=" s" />
-                            </TextBlock>
-                            <Slider Style="{StaticResource TuneSlider}" Minimum="30" Maximum="300" Value="{Binding SecondsPerStep}"
-                                    TickFrequency="15" IsSnapToTickEnabled="True" Margin="0,8,0,0" />
-                        </StackPanel>
-                        <StackPanel>
-                            <TextBlock FontSize="12" Foreground="{StaticResource TextMuted}">
-                                <Run Text="Ceiling: +" /><Run Text="{Binding MaxOffset, StringFormat=F0}" /><Run Text=" MHz" />
-                            </TextBlock>
-                            <Slider Style="{StaticResource TuneSlider}" Minimum="50" Maximum="600" Value="{Binding MaxOffset}"
-                                    TickFrequency="25" IsSnapToTickEnabled="True" Margin="0,8,0,0" />
-                        </StackPanel>
-                    </UniformGrid>
+                            <TextBlock Text="Step size" Style="{StaticResource FieldLabel}" />
+                            <Slider Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="10" Maximum="60" Value="{Binding StepMHz}"
+                                    Margin="12,0,20,0" AutomationProperties.Name="Stepper step size, megahertz"
+                                    TickFrequency="5" IsSnapToTickEnabled="True" />
+                            <TextBlock Grid.Column="2" Text="{Binding StepMHz, StringFormat='+{0:F0} MHz'}" Style="{StaticResource ValueLabel}" />
 
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
-                        <Button Style="{StaticResource PrimaryButton}" MinWidth="150"
-                                Command="{Binding ToggleStepperCommand}" IsEnabled="{Binding CanStep}">
-                            <Button.Content>
+                            <TextBlock Grid.Row="2" Text="Time per step" Style="{StaticResource FieldLabel}" />
+                            <Slider Grid.Row="2" Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="30" Maximum="300"
+                                    Value="{Binding SecondsPerStep}" Margin="12,0,20,0" AutomationProperties.Name="Seconds per step"
+                                    TickFrequency="15" IsSnapToTickEnabled="True" />
+                            <TextBlock Grid.Row="2" Grid.Column="2" Text="{Binding SecondsPerStep, StringFormat='{}{0:F0} s'}"
+                                       Style="{StaticResource ValueLabel}" />
+
+                            <TextBlock Grid.Row="4" Text="Highest offset to try" Style="{StaticResource FieldLabel}" />
+                            <Slider Grid.Row="4" Grid.Column="1" Style="{StaticResource TuneSlider}" Minimum="50" Maximum="600"
+                                    Value="{Binding MaxOffset}" Margin="12,0,20,0" AutomationProperties.Name="Maximum offset to try, megahertz"
+                                    TickFrequency="25" IsSnapToTickEnabled="True" />
+                            <TextBlock Grid.Row="4" Grid.Column="2" Text="{Binding MaxOffset, StringFormat='+{0:F0} MHz'}"
+                                       Style="{StaticResource ValueLabel}" />
+                        </Grid>
+
+                        <Grid Margin="0,16,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Button Style="{StaticResource PrimaryButton}" MinWidth="150" VerticalAlignment="Center"
+                                    Command="{Binding ToggleStepperCommand}" IsEnabled="{Binding CanStep}">
                                 <TextBlock>
                                     <TextBlock.Style>
-                                        <Style TargetType="TextBlock">
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource InheritingText}">
                                             <Setter Property="Text" Value="Start stepper" />
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding StepperRunning}" Value="True">
@@ -187,45 +212,44 @@
                                         </Style>
                                     </TextBlock.Style>
                                 </TextBlock>
-                            </Button.Content>
-                        </Button>
-                        <TextBlock Text="{Binding StepperPhaseText}" FontSize="12.5" VerticalAlignment="Center"
-                                   Margin="14,0,0,0" />
+                            </Button>
+                            <TextBlock Grid.Column="1" Text="{Binding StepperPhaseText}" Style="{StaticResource StatusText}"
+                                       Foreground="{StaticResource Text}" VerticalAlignment="Center" Margin="16,0,0,0" />
+                        </Grid>
+
+                        <!-- Progress and log exist once a run has something to show. -->
+                        <StackPanel Margin="0,16,0,0"
+                                    Visibility="{Binding StepperLog, Converter={x:Static views:Converters.NonEmptyToVisibility}}">
+                            <ProgressBar Value="{Binding StepperProgress, Mode=OneWay}" Maximum="1" />
+                            <Border Style="{StaticResource InsetPanel}" Margin="0,12,0,0">
+                                <TextBlock Text="{Binding StepperLog}" Style="{StaticResource LogText}" />
+                            </Border>
+                        </StackPanel>
                     </StackPanel>
+                </Border>
 
-                    <ProgressBar Value="{Binding StepperProgress, Mode=OneWay}" Maximum="1" Height="5" Margin="0,10,0,0"
-                                 Background="{StaticResource Bg3}" Foreground="{StaticResource Accent}" BorderThickness="0" />
+                <!-- Crash forensics -->
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Crash forensics" Style="{StaticResource SectionTitle}" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Style="{StaticResource SubtleButton}" Content="Copy report"
+                                    Command="{Binding CopyCrashReportCommand}"
+                                    Visibility="{Binding HasCrashReport, Converter={x:Static views:Converters.BoolToVisibility}}" />
+                        </Grid>
+                        <TextBlock Style="{StaticResource SectionDescription}"
+                                   Text="The flight recorder keeps the last few minutes of sensor data on disk. If a session ends in a hard crash, its final seconds are matched against the Windows event log and explained here in plain language." />
+                        <Border Style="{StaticResource InsetPanel}" Margin="0,12,0,0">
+                            <TextBlock Text="{Binding CrashReportText}" Style="{StaticResource LogText}" />
+                        </Border>
+                    </StackPanel>
+                </Border>
 
-                    <Border Background="{StaticResource Bg1}" CornerRadius="7" Padding="10" Margin="0,10,0,0"
-                            MinHeight="120">
-                        <TextBlock Text="{Binding StepperLog}" FontFamily="{StaticResource MonoFont}" FontSize="11"
-                                   Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" />
-                    </Border>
-                </StackPanel>
-            </Border>
-
-            <!-- Crash forensics -->
-            <Border Style="{StaticResource Card}" Margin="0,10,0,0">
-                <StackPanel>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Crash forensics" FontWeight="SemiBold" FontSize="13.5" />
-                        <Button Grid.Column="1" Style="{StaticResource GhostButton}" Content="Copy report"
-                                Command="{Binding CopyCrashReportCommand}"
-                                Visibility="{Binding HasCrashReport, Converter={x:Static views:Converters.BoolToVisibility}}" />
-                    </Grid>
-                    <TextBlock Text="The flight recorder keeps the last minutes of telemetry on disk. When a session ends in a hard crash, its final seconds are correlated with the Windows event log and explained here in plain language."
-                               FontSize="11.5" Foreground="{StaticResource TextFaint}" TextWrapping="Wrap" Margin="0,2,0,0" />
-                    <Border Background="{StaticResource Bg1}" CornerRadius="7" Padding="12" Margin="0,10,0,0">
-                        <TextBlock Text="{Binding CrashReportText}" FontFamily="{StaticResource MonoFont}" FontSize="11"
-                                   Foreground="{StaticResource TextMuted}" TextWrapping="Wrap" />
-                    </Border>
-                </StackPanel>
-            </Border>
-
-        </StackPanel>
+            </StackPanel>
+        </Grid>
     </ScrollViewer>
 </UserControl>

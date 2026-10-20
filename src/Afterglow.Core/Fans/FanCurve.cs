@@ -51,6 +51,12 @@ public sealed record FanCurveConfig
     ];
 
     /// <summary>Validates points; returns an error description or null when valid.</summary>
+    /// <summary>Highest zero-RPM threshold accepted (the Fans page offers 30–60 °C).</summary>
+    public const double MaxZeroRpmBelowC = 60;
+
+    /// <summary>Lowest duty the curve's hottest point may ask for.</summary>
+    public const double MinTopDutyPct = 30;
+
     public string? Validate()
     {
         if (Points.Count is < 2 or > MaxPoints)
@@ -83,6 +89,20 @@ public sealed record FanCurveConfig
         if (HysteresisC is < 0 or > 20 || ZeroRpmHysteresisC is < 0 or > 20)
         {
             return "Hysteresis must be between 0 and 20 °C.";
+        }
+
+        // Safety floors. Every duty the driver accepts is "legal", including 0 %
+        // at any temperature, so a curve read from disk (or planted there) could
+        // otherwise hold the fans stopped while the card heats up, with only the
+        // firmware's own thermal limits as a backstop.
+        if (ZeroRpmBelowC is < 0 or > MaxZeroRpmBelowC)
+        {
+            return $"Zero-RPM threshold must be 0 (off) to {MaxZeroRpmBelowC} °C.";
+        }
+
+        if (Points[^1].DutyPct < MinTopDutyPct)
+        {
+            return $"The curve's hottest point must ask for at least {MinTopDutyPct} % duty.";
         }
 
         return null;

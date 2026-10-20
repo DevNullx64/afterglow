@@ -13,21 +13,21 @@ public partial class MetricsViewModel : ObservableObject
     private readonly DispatcherTimer _refresh;
     private readonly DispatcherTimer _foregroundPoll;
 
-    [ObservableProperty] private bool _captureRunning;
-    [ObservableProperty] private string _captureStatusText;
-    [ObservableProperty] private bool _presentMonMissing;
+    [ObservableProperty] public partial bool CaptureRunning { get; set; }
+    [ObservableProperty] public partial string CaptureStatusText { get; set; }
+    [ObservableProperty] public partial bool PresentMonMissing { get; set; }
 
-    [ObservableProperty] private string _appText = "No presenting app detected yet";
-    [ObservableProperty] private string _presentModeText = string.Empty;
-    [ObservableProperty] private string _avgFpsText = "—";
-    [ObservableProperty] private string _p1Text = "—";
-    [ObservableProperty] private string _p01Text = "—";
-    [ObservableProperty] private string _low1Text = "—";
-    [ObservableProperty] private string _low01Text = "—";
-    [ObservableProperty] private string _avgFrametimeText = "—";
-    [ObservableProperty] private string _maxFrametimeText = "—";
-    [ObservableProperty] private string _frameCountText = string.Empty;
-    [ObservableProperty] private IReadOnlyList<double>? _frametimeSeries;
+    [ObservableProperty] public partial string AppText { get; set; } = "No presenting app detected yet";
+    [ObservableProperty] public partial string PresentModeText { get; set; } = string.Empty;
+    [ObservableProperty] public partial string AvgFpsText { get; set; } = "—";
+    [ObservableProperty] public partial string P1Text { get; set; } = "—";
+    [ObservableProperty] public partial string P01Text { get; set; } = "—";
+    [ObservableProperty] public partial string Low1Text { get; set; } = "—";
+    [ObservableProperty] public partial string Low01Text { get; set; } = "—";
+    [ObservableProperty] public partial string AvgFrametimeText { get; set; } = "—";
+    [ObservableProperty] public partial string MaxFrametimeText { get; set; } = "—";
+    [ObservableProperty] public partial string FrameCountText { get; set; } = string.Empty;
+    [ObservableProperty] public partial IReadOnlyList<double>? FrametimeSeries { get; set; }
 
     public string MethodNote { get; } =
         "Averages are harmonic (N·1000/Σft). P1/P0.1 are interpolated percentiles of the frametime " +
@@ -48,7 +48,7 @@ public partial class MetricsViewModel : ObservableObject
         "sessions to compare them. FPS numbers are the trailing 30 s window at capture end; power/temps are " +
         "averaged over the session.";
 
-    [ObservableProperty] private string _compareText = string.Empty;
+    [ObservableProperty] public partial string CompareText { get; set; } = string.Empty;
 
     public bool HasComparison => CompareText.Length > 0;
 
@@ -80,7 +80,7 @@ public partial class MetricsViewModel : ObservableObject
     {
         if (_compareA is { } a && _compareB is { } b)
         {
-            Clipboard.SetText(SessionCompare.ToMarkdown(a, b));
+            ClipboardSafe.Copy(SessionCompare.ToMarkdown(a, b));
         }
     }
 
@@ -89,7 +89,7 @@ public partial class MetricsViewModel : ObservableObject
     {
         if (SessionHistory.Count > 0)
         {
-            Clipboard.SetText(SessionReportStore.ToMarkdown([.. SessionHistory]));
+            ClipboardSafe.Copy(SessionReportStore.ToMarkdown([.. SessionHistory]));
         }
     }
 
@@ -102,6 +102,9 @@ public partial class MetricsViewModel : ObservableObject
         }
     }
 
+    /// <summary>The GPU the running capture was started on (see ToggleCapture).</summary>
+    private Core.Hardware.GpuContext? _captureGpu;
+
     private void RecordSession()
     {
         int duration = (int)(DateTimeOffset.Now - _captureStartedAt).TotalSeconds;
@@ -110,33 +113,28 @@ public partial class MetricsViewModel : ObservableObject
             return;
         }
 
-        double power = 0;
-        double gpuTemp = 0;
-        double memTemp = 0;
-        int samples = 0;
-        uint deviceIndex = _services.SelectedGpu?.Index ?? 0;
-        foreach (var snapshot in _services.Telemetry.HistoryFor(deviceIndex).GetAll())
-        {
-            if (snapshot.Timestamp < _captureStartedAt)
-            {
-                continue;
-            }
+        // FPS capture needs no supported GPU; with none there is no history
+        // for the device, and a throw here would leave the capture unstoppable
+        // (F-18). The averages come from the card the capture started on.
+        var captureGpu = _captureGpu ?? _services.SelectedGpu;
+        var telemetry = Core.Metrics.SessionTelemetry.Since(
+            _services.Telemetry, captureGpu?.Index ?? 0, _captureStartedAt);
 
-            power += snapshot.PowerW ?? 0;
-            gpuTemp += snapshot.GpuTempC ?? 0;
-            memTemp += snapshot.MemJunctionTempC ?? 0;
-            samples++;
-        }
-
-        int core = 0;
-        int mem = 0;
-        if (_services.SelectedGpu is { } gpu)
+        // The capture's card, not the selector's: the selector can move to
+        // another GPU mid-game, and this report used to stamp that card's
+        // offsets under the first card's name and averages. And null, not 0,
+        // for a knob the card does not have — an Arc session was exporting
+        // "core 0 / mem 0 MHz" for offsets it cannot apply.
+        int? core = null;
+        int? mem = null;
+        if (captureGpu is { } gpu)
         {
             try
             {
                 var current = gpu.Tuner.ReadCurrent();
-                core = current.CoreOffsetMHz;
-                mem = current.MemOffsetMHz;
+                var caps = gpu.Tuner.Capabilities;
+                core = caps.SupportsCoreOffset ? current.CoreOffsetMHz : null;
+                mem = caps.SupportsMemOffset ? current.MemOffsetMHz : null;
             }
             catch (InvalidOperationException)
             {
@@ -146,15 +144,17 @@ public partial class MetricsViewModel : ObservableObject
         var report = new SessionReport
         {
             Application = last.App,
+            GpuName = captureGpu?.Name,
+            GpuUuid = captureGpu?.Uuid,
             StartedAt = _captureStartedAt,
             DurationSeconds = duration,
             AvgFps = last.Stats.AverageFps,
             Low1Fps = last.Stats.Low1Fps,
             P1Fps = last.Stats.P1Fps,
             Frames = last.Stats.FrameCount,
-            AvgPowerW = samples > 0 ? power / samples : 0,
-            AvgGpuTempC = samples > 0 ? gpuTemp / samples : 0,
-            AvgMemJunctionC = samples > 0 ? memTemp / samples : 0,
+            AvgPowerW = telemetry.PowerW,
+            AvgGpuTempC = telemetry.GpuTempC,
+            AvgMemJunctionC = telemetry.MemJunctionC,
             CoreOffsetMHz = core,
             MemOffsetMHz = mem,
         };
@@ -166,28 +166,52 @@ public partial class MetricsViewModel : ObservableObject
     public MetricsViewModel(AppServices services)
     {
         _services = services;
-        _presentMonMissing = !services.DemoMode && !File.Exists(PresentMonSession.DefaultExePath);
-        _captureStatusText = services.DemoMode
+        PresentMonMissing = !services.DemoMode && !File.Exists(PresentMonSession.DefaultExePath);
+        CaptureStatusText = services.DemoMode
             ? "Demo mode — the numbers below are synthetic, showing what live capture looks like."
-            : _presentMonMissing
+            : PresentMonMissing
                 ? $"PresentMon binary not found ({PresentMonSession.BundledExeName}). FPS capture is disabled — reinstall Afterglow or place Intel PresentMon under ThirdParty\\PresentMon."
                 : "Capture idle.";
 
-        if (services.DemoMode)
-        {
-            _captureRunning = true;
-        }
-
         _refresh = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _refresh.Tick += (_, _) => Refresh();
-        _refresh.Start();
 
         LoadSessionHistory();
 
         _foregroundPoll = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _foregroundPoll.Tick += (_, _) =>
             _services.FrameMetrics.ForegroundProcessId = ForegroundProcess.GetForegroundProcessId();
-        _foregroundPoll.Start();
+
+        // Last: CaptureRunning is a notifying property now, and its change hook
+        // starts the timers created just above.
+        if (services.DemoMode)
+        {
+            CaptureRunning = true;
+        }
+    }
+
+    partial void OnCaptureRunningChanged(bool value) => UpdateCaptureTimers(value);
+
+    /// <summary>
+    /// Both timers only mean something while frames are being captured (the
+    /// foreground app picks the capture target); without a capture they used to
+    /// wake the UI thread three times every two seconds, for days, in the tray.
+    /// They keep running while capturing even when this page is hidden — the
+    /// dashboard tile, the overlay and the session record read the same stats.
+    /// </summary>
+    private void UpdateCaptureTimers(bool capturing)
+    {
+        if (capturing)
+        {
+            _services.FrameMetrics.ForegroundProcessId = ForegroundProcess.GetForegroundProcessId();
+            _refresh.Start();
+            _foregroundPoll.Start();
+        }
+        else
+        {
+            _refresh.Stop();
+            _foregroundPoll.Stop();
+        }
     }
 
     [RelayCommand]
@@ -195,10 +219,20 @@ public partial class MetricsViewModel : ObservableObject
     {
         if (CaptureRunning)
         {
-            RecordSession();
-            _services.FrameMetrics.Session.Dispose();
-            CaptureRunning = false;
-            CaptureStatusText = "Capture stopped.";
+            try
+            {
+                RecordSession();
+            }
+            finally
+            {
+                // Stopping never depends on the report: whatever goes wrong
+                // writing it, the capture ends and the button leaves the
+                // running state instead of rethrowing on every click (F-18).
+                _services.FrameMetrics.Session.Dispose();
+                CaptureRunning = false;
+                CaptureStatusText = "Capture stopped.";
+            }
+
             return;
         }
 
@@ -207,6 +241,11 @@ public partial class MetricsViewModel : ObservableObject
             CaptureRunning = true;
             _captureStartedAt = DateTimeOffset.Now;
             _lastTargetStats = null;
+
+            // Bind the capture to the card selected when it STARTED. Reading the
+            // selector again at Stop attributed a whole session's sensor averages
+            // to whichever card the user had switched to since.
+            _captureGpu = _services.SelectedGpu;
             CaptureStatusText = "Capturing present events for all processes (ETW).";
         }
         else
@@ -239,10 +278,18 @@ public partial class MetricsViewModel : ObservableObject
         var stats = _services.FrameMetrics.GetTargetStats();
         if (stats is null)
         {
+            // Clear the numbers too. Blanking only the header left the last
+            // app's FPS, percentiles, frametimes and graph on screen under
+            // "No presenting app detected yet" — a frozen reading that looks
+            // live, and the one thing this app must never show. The same shape
+            // of bug had already been fixed in two other places; this was the
+            // third consumer of the same null.
             AppText = "No presenting app detected yet";
             PresentModeText = string.Empty;
+            ClearFrameStats();
             return;
         }
+
 
         var (app, s) = stats.Value;
         _lastTargetStats = (app.Application, s);
@@ -257,6 +304,26 @@ public partial class MetricsViewModel : ObservableObject
         MaxFrametimeText = $"{s.MaxFrametimeMs:F1} ms";
         FrameCountText = $"{s.FrameCount:N0} frames in window";
         FrametimeSeries = _services.FrameMetrics.GetTargetFrametimes(600);
+    }
+
+    /// <summary>Blanks every measured frame statistic — used whenever there is
+    /// nothing being measured, so no stale number survives on screen.</summary>
+    private void ClearFrameStats()
+    {
+        // Display only. _lastTargetStats is the completed capture's RECORD, and
+        // RecordSession() refuses to write a session without it — nulling it here
+        // meant a game that quit two seconds before the user pressed Stop threw
+        // the whole measurement away with no message. ToggleCapture already
+        // resets it per capture.
+        AvgFpsText = "—";
+        P1Text = "—";
+        P01Text = "—";
+        Low1Text = "—";
+        Low01Text = "—";
+        AvgFrametimeText = "—";
+        MaxFrametimeText = "—";
+        FrameCountText = string.Empty;
+        FrametimeSeries = [];
     }
 
     private void RefreshDemo()

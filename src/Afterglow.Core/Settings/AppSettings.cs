@@ -150,12 +150,20 @@ public static class SettingsStore
 
     public static AppSettings Load()
     {
+        // First read in the elevated app: lock down the data root and turn on
+        // the load-time owner check, so settings planted by a standard user are
+        // not trusted (ProgramData hardening). No-op when unelevated or --data-dir.
+        Security.DataRootProtection.EnsureHardened();
+
         try
         {
-            if (File.Exists(AppPaths.SettingsFile))
+            // Null when missing or — elevated — owned by an untrusted principal
+            // (planted before the lock-down): safe defaults either way. The owner
+            // is checked on the same open handle the content is read from.
+            string? json = Security.DataRootProtection.TryReadAllText(AppPaths.SettingsFile);
+            if (json is not null)
             {
-                return JsonSerializer.Deserialize<AppSettings>(
-                    File.ReadAllText(AppPaths.SettingsFile), JsonOptions) ?? new AppSettings();
+                return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
             }
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
@@ -178,16 +186,8 @@ public static class SettingsStore
         try
         {
             AppPaths.EnsureCreated();
-            string temp = AppPaths.SettingsFile + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(settings, JsonOptions));
-            if (File.Exists(AppPaths.SettingsFile))
-            {
-                File.Replace(temp, AppPaths.SettingsFile, destinationBackupFileName: null);
-            }
-            else
-            {
-                File.Move(temp, AppPaths.SettingsFile);
-            }
+            Security.DataRootProtection.WriteAllTextAtomic(
+                AppPaths.SettingsFile, JsonSerializer.Serialize(settings, JsonOptions));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

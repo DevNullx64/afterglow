@@ -22,7 +22,18 @@ public sealed class ProfileStore
     public ProfileStore(string? directory = null)
     {
         _directory = directory ?? AppPaths.ProfilesDir;
-        Directory.CreateDirectory(_directory);
+
+        // Best-effort: a store whose directory can't be created (ProgramData
+        // locked down, a read-only path, an AV block) must still construct, so
+        // a host that only reads — or that never touches profiles at all — is
+        // not killed at startup. Save/LoadAll retry and report instead (F-36).
+        try
+        {
+            Directory.CreateDirectory(_directory);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     /// <summary>Files that failed to parse during the last <see cref="LoadAll"/>.</summary>
@@ -33,16 +44,45 @@ public sealed class ProfileStore
         var profiles = new List<TuningProfile>();
         var errors = new List<(string, string)>();
 
-        foreach (string file in Directory.EnumerateFiles(_directory, "*.json"))
+        // Enumeration itself can throw (directory missing, unreadable, or not a
+        // directory at all) — that used to escape LoadAll and, from the MCP
+        // server's list_profiles tool, take the whole stdio process down (F-36).
+        IEnumerable<string> files;
+        try
+        {
+            files = Directory.EnumerateFiles(_directory, "*.json").ToArray();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LastLoadErrors = [(_directory, ex.Message)];
+            return [];
+        }
+
+        foreach (string file in files)
         {
             try
             {
-                var profile = JsonSerializer.Deserialize<TuningProfile>(File.ReadAllText(file), JsonOptions);
+                // ProgramData hardening: when elevated, a profile whose owner is
+                // neither an administrator/SYSTEM nor the current user may have
+                // been planted by a standard user — skip it rather than trust it
+                // for a GPU-write (no-op unelevated / --data-dir). Checked on the
+                // handle the content is read from.
+                if (Security.DataRootProtection.TryReadAllText(file) is not { } json)
+                {
+                    errors.Add((file, "Skipped: file owner is not trusted while running elevated."));
+                    continue;
+                }
+
+                var profile = JsonSerializer.Deserialize<TuningProfile>(json, JsonOptions);
                 if (profile is null)
                 {
                     errors.Add((file, "Empty profile file."));
                 }
-                else if (profile.Validate() is string error)
+                // The store is vendor-agnostic, so its corruption guard uses
+                // the widest legitimate floors (Intel clamps reach 100 MHz;
+                // low-power Arc parts report power minimums below 50 W). The
+                // apply engine re-validates against the actual device.
+                else if (profile.Validate(lockFloorMHz: 100, powerFloorW: 15) is string error)
                 {
                     errors.Add((file, error));
                 }
@@ -71,7 +111,10 @@ public sealed class ProfileStore
 
         try
         {
-            return JsonSerializer.Deserialize<TuningProfile>(File.ReadAllText(path), JsonOptions);
+            // Elevated: refuse a profile whose owner is untrusted (see LoadAll).
+            return Security.DataRootProtection.TryReadAllText(path) is { } json
+                ? JsonSerializer.Deserialize<TuningProfile>(json, JsonOptions)
+                : null;
         }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
@@ -82,22 +125,23 @@ public sealed class ProfileStore
     /// <summary>Validates then atomically writes the profile. Throws on validation failure.</summary>
     public void Save(TuningProfile profile)
     {
-        if (profile.Validate() is string error)
+        // Widest legitimate floors — see the load-side comment above.
+        if (profile.Validate(lockFloorMHz: 100, powerFloorW: 15) is string error)
         {
             throw new InvalidOperationException($"Refusing to save invalid profile: {error}");
         }
 
-        string path = PathFor(profile.Name);
-        string temp = path + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(profile, JsonOptions));
-        if (File.Exists(path))
-        {
-            File.Replace(temp, path, destinationBackupFileName: null);
-        }
-        else
-        {
-            File.Move(temp, path);
-        }
+        // Retry directory creation here — the constructor's attempt is
+        // best-effort, so a store that couldn't make its folder then may be
+        // able to now. A genuine failure surfaces as the IOException /
+        // UnauthorizedAccessException that every Save caller already handles.
+        Directory.CreateDirectory(_directory);
+
+        // Temp + rename: the result carries the folder's permissions, and a
+        // refused (untrusted-owner) target is moved aside rather than replaced
+        // in a way that would inherit its grants.
+        Security.DataRootProtection.WriteAllTextAtomic(
+            PathFor(profile.Name), JsonSerializer.Serialize(profile, JsonOptions));
     }
 
     public bool Delete(string name)

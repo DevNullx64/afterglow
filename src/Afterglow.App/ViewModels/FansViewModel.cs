@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Afterglow.Core.Fans;
@@ -7,46 +7,46 @@ using Afterglow.Core.Telemetry;
 
 namespace Afterglow.App.ViewModels;
 
-public partial class FansViewModel : ObservableObject
+public partial class FansViewModel : ObservableObject, ILivePage
 {
     private readonly AppServices _services;
     private GpuContext? _gpu;
     private FanControlService? _fanControl;
 
     [ObservableProperty]
-    private int _modeIndex; // 0 auto, 1 fixed, 2 curve
+    public partial int ModeIndex { get; set; } // 0 auto, 1 fixed, 2 curve
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(FixedDutyLabel))]
-    private double _fixedDuty = 50;
+    public partial double FixedDuty { get; set; } = 50;
 
     [ObservableProperty]
-    private string _statusText = string.Empty;
+    public partial string StatusText { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string _liveText = "—";
+    public partial string LiveText { get; set; } = "—";
 
     [ObservableProperty]
-    private double _liveTemp;
+    public partial double LiveTemp { get; set; }
 
     [ObservableProperty]
-    private double _liveDuty;
+    public partial double LiveDuty { get; set; }
 
     // Curve settings (bound to the editor + parameter controls)
     [ObservableProperty]
-    private FanCurveConfig _curve = new();
+    public partial FanCurveConfig Curve { get; set; } = new();
 
     [ObservableProperty]
-    private int _tempSourceIndex;
+    public partial int TempSourceIndex { get; set; }
 
     [ObservableProperty]
-    private double _hysteresis = 3;
+    public partial double Hysteresis { get; set; } = 3;
 
     [ObservableProperty]
-    private bool _zeroRpmEnabled = true;
+    public partial bool ZeroRpmEnabled { get; set; } = true;
 
     [ObservableProperty]
-    private double _zeroRpmBelow = 45;
+    public partial double ZeroRpmBelow { get; set; } = 45;
 
     public string FixedDutyLabel => $"{FixedDuty:F0}%";
 
@@ -61,11 +61,17 @@ public partial class FansViewModel : ObservableObject
 
     partial void OnZeroRpmBelowChanged(double value) => PersistFanSettings();
 
-    public bool CanControl => _services.DemoMode || (_services.IsElevated && _gpu is not null);
+    // Capability term for non-NVIDIA GPUs only — the NVIDIA gate is unchanged.
+    public bool CanControl => _services.DemoMode
+        || (_services.IsElevated && _gpu is not null
+            && (_gpu.Vendor == Core.Hardware.GpuVendor.Nvidia || _gpu.Tuner.Capabilities.SupportsFanControl));
 
     public string GateText => CanControl
         ? string.Empty
-        : "Fan control needs administrator rights.";
+        : _gpu is not null && _gpu.Vendor != Core.Hardware.GpuVendor.Nvidia
+            && !_gpu.Tuner.Capabilities.SupportsFanControl
+            ? "This GPU's fans are firmware-controlled on this device — the driver exposes no fan interface."
+            : "Fan control needs administrator rights.";
 
     public bool HasMemJunction { get; private set; }
 
@@ -111,7 +117,14 @@ public partial class FansViewModel : ObservableObject
     /// </summary>
     public void RebindGpu()
     {
+        // "Curve active — Afterglow is driving the fans" is a statement about the
+        // card it was applied to; the settings below are reloaded for the new one.
+        var previousGpu = _gpu;
         BindGpu(_services.SelectedGpu);
+        if (previousGpu is not null && previousGpu.Index != _gpu?.Index)
+        {
+            StatusText = string.Empty;
+        }
         OnPropertyChanged(nameof(HasMemJunction));
         OnPropertyChanged(nameof(FanIds));
         OnPropertyChanged(nameof(CanControl));
@@ -191,25 +204,51 @@ public partial class FansViewModel : ObservableObject
         _loadingSettings = false;
     }
 
+    private volatile bool _isLive;
+
+    /// <inheritdoc />
+    public bool IsLive
+    {
+        get => _isLive;
+        set
+        {
+            if (_isLive == value)
+            {
+                return;
+            }
+
+            _isLive = value;
+            if (value && _services.Telemetry.TryHistoryFor(LiveDeviceIndex)?.Latest is { } latest)
+            {
+                ApplySnapshot(latest);
+            }
+        }
+    }
+
+    private uint LiveDeviceIndex => _gpu?.Index ?? 0;
+
     private void OnSnapshot(GpuSnapshot snapshot)
     {
-        if (_gpu is not null && snapshot.DeviceIndex != _gpu.Index)
+        // Display only — the fan curve itself runs in FanControlService on every tick.
+        if (!_isLive || (_gpu is not null && snapshot.DeviceIndex != _gpu.Index))
         {
             return;
         }
 
-        Application.Current?.Dispatcher.BeginInvoke(() =>
-        {
-            var fans = snapshot.FanPercents;
-            var rpms = snapshot.FanRpms;
-            LiveText = fans is { Count: > 0 }
-                ? string.Join("   ", fans.Select((f, i) =>
-                    $"Fan {i + 1}: {f}%{(rpms is not null && i < rpms.Count ? $" ({rpms[i]} RPM)" : string.Empty)}"))
-                : "—";
+        Application.Current?.Dispatcher.BeginInvoke(() => ApplySnapshot(snapshot));
+    }
 
-            LiveTemp = SelectTemp(snapshot) ?? 0;
-            LiveDuty = snapshot.MaxFanPercent ?? 0;
-        });
+    private void ApplySnapshot(GpuSnapshot snapshot)
+    {
+        var fans = snapshot.FanPercents;
+        var rpms = snapshot.FanRpms;
+        LiveText = fans is { Count: > 0 }
+            ? string.Join("   ", fans.Select((f, i) =>
+                $"Fan {i + 1}: {f}%{(rpms is not null && i < rpms.Count ? $" ({rpms[i]} RPM)" : string.Empty)}"))
+            : "—";
+
+        LiveTemp = SelectTemp(snapshot) ?? 0;
+        LiveDuty = snapshot.MaxFanPercent ?? 0;
     }
 
     private double? SelectTemp(GpuSnapshot s) => (FanTempSource)TempSourceIndex switch
@@ -342,8 +381,20 @@ public partial class FansViewModel : ObservableObject
         uint duty = Core.Tuning.TuningMath.NormalizeFixedFanDuty(
             (uint)FixedDuty, _gpu.Tuner.Capabilities.FanMinDutyPct);
         var rc = _gpu.Tuner.SetFanRaw(coolerId, duty);
-        StatusText = rc == Core.Interop.Nvml.NvmlReturn.Success
-            ? $"Fan {coolerId} set to {duty}% (others untouched)."
-            : $"Per-fan command failed: {rc}";
+        if (rc != Core.Interop.Nvml.NvmlReturn.Success)
+        {
+            StatusText = $"Per-fan command failed: {rc}";
+            return;
+        }
+
+        // This is a real, driver-persistent manual takeover (NVAPI control mode
+        // 1) that used to bypass FanControlService entirely: nothing recorded
+        // applied state, so shutdown stamped the session clean and — if the
+        // service had never been engaged this session — its Dispose released
+        // nothing, leaving this cooler pinned (possibly stopped) at the driver
+        // level after the process exited. Arming the service makes the release
+        // path, the unclean-shutdown banner, and "Firmware (auto)" all cover it.
+        _fanControl?.NoteExternalManualControl(duty);
+        StatusText = $"Fan {coolerId} set to {duty}% (others untouched).";
     }
 }

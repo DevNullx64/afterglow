@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Media;
@@ -15,13 +15,22 @@ namespace Afterglow.App;
 public partial class App : Application
 {
     private AppServices? _services;
+
+    /// <summary>
+    /// --demo / --screenshot: a throwaway process that starts the services but
+    /// applies nothing to real hardware, and must not touch the applied-state
+    /// record the resident instance owns.
+    /// </summary>
+    private bool _ephemeralRun;
     private MainViewModel? _mainViewModel;
     private TrayService? _tray;
     private HotkeyService? _hotkeys;
     private DispatcherTimer? _tooltipTimer;
     private bool _exitRequested;
     private System.Threading.Mutex? _singleInstanceMutex;
+    private System.Threading.Mutex? _hardwareOwnerMutex;
     private System.Threading.EventWaitHandle? _activationSignal;
+    private RegisteredWaitHandle? _activationWait;
 
     public static new App Current => (App)Application.Current;
 
@@ -31,7 +40,21 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        var args = new HashSet<string>(e.Args, StringComparer.OrdinalIgnoreCase);
+        // --data-dir first: every path below (log, settings, flight files, the
+        // single-instance name) must already point at the redirected root.
+        string[] argv;
+        try
+        {
+            argv = Core.CommandLine.ApplyDataDir(e.Args);
+        }
+        catch (ArgumentException ex)
+        {
+            MessageBox.Show(ex.Message, "Afterglow", MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(2);
+            return;
+        }
+
+        var args = new HashSet<string>(argv, StringComparer.OrdinalIgnoreCase);
 
         if (args.Contains("--present-storm"))
         {
@@ -60,17 +83,20 @@ public partial class App : Application
         }
 
         bool demo = args.Contains("--demo");
-        string? screenshotPath = GetArgValue(e.Args, "--screenshot");
-        string? page = GetArgValue(e.Args, "--page");
+        string? screenshotPath = Core.CommandLine.ValueOf(argv, "--screenshot");
+        _ephemeralRun = demo || screenshotPath is not null;
+        string? page = Core.CommandLine.ValueOf(argv, "--page");
 
         // Single instance: two Afterglows would fight over fan control, hotkeys,
         // and the TDR watchdog. A second launch signals the first to come forward.
+        // A --data-dir instance is its own instance (own state, own names).
         if (screenshotPath is null && !demo)
         {
+            string suffix = Core.AppPaths.InstanceSuffix;
             _singleInstanceMutex = new System.Threading.Mutex(
-                initiallyOwned: true, @"Local\AfterglowSingleInstance", out bool isFirst);
+                initiallyOwned: true, @"Local\AfterglowSingleInstance" + suffix, out bool isFirst);
             _activationSignal = new System.Threading.EventWaitHandle(
-                false, System.Threading.EventResetMode.AutoReset, @"Local\AfterglowActivate");
+                false, System.Threading.EventResetMode.AutoReset, @"Local\AfterglowActivate" + suffix);
             if (!isFirst)
             {
                 _ = _activationSignal.Set();
@@ -83,14 +109,64 @@ public partial class App : Application
         // prompt continues in monitoring-only mode.
         if (!demo && screenshotPath is null && !args.Contains("--no-elevate") && !AppServices.CheckElevated())
         {
-            if (TryRelaunchElevated(e.Args))
+            // The --data-dir value goes over already resolved: the elevated copy
+            // resolves relative paths against its own working directory.
+            if (TryRelaunchElevated(Core.CommandLine.WithResolvedDataDir(e.Args)))
             {
                 Shutdown();
                 return;
             }
         }
 
+        // At most one Afterglow may hold administrator rights at a time: two
+        // would fight over fans, clock locks, the TDR watchdog's resets and game
+        // rules. The per-data-root single-instance mutex above lets a --data-dir
+        // instance run beside the resident one, so this second guard is what
+        // keeps that pair from both driving the hardware. Global\, not Local\:
+        // the GPU is one per machine, and fast user switching or a second admin
+        // session would otherwise give each session its own "only" owner.
+        // Unelevated instances can't write and don't take part.
+        if (!demo && screenshotPath is null && AppServices.CheckElevated())
+        {
+            bool ownsHardware;
+            try
+            {
+                _hardwareOwnerMutex = new System.Threading.Mutex(
+                    initiallyOwned: true, @"Global\AfterglowHardwareOwner", out ownsHardware);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Created by another session's instance with a DACL we can't open:
+                // it is owned elsewhere.
+                ownsHardware = false;
+            }
+
+            if (!ownsHardware)
+            {
+                _hardwareOwnerMutex?.Dispose();
+                _hardwareOwnerMutex = null;
+                MessageBox.Show(
+                    "Another Afterglow with administrator rights is already controlling the GPU" +
+                    (Core.AppPaths.IsRedirected ? " (this copy was started with --data-dir)" : string.Empty) +
+                    ". Two would fight over the fans, clock locks and crash recovery, so this copy exits.\n\n" +
+                    "Close the other one first, or run this copy with --no-elevate from a normal (unelevated) " +
+                    "shell for monitoring only.",
+                    "Afterglow", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Shutdown(3);
+                return;
+            }
+        }
+
         DispatcherUnhandledException += OnUnhandledException;
+
+        // One log line per launch with where startup time went, so a slow
+        // logon can be diagnosed from the log instead of guessed at.
+        var startupClock = Stopwatch.StartNew();
+        double runtimeMs;
+        using (var self = Process.GetCurrentProcess())
+        {
+            runtimeMs = (DateTime.Now - self.StartTime).TotalMilliseconds;
+        }
 
         try
         {
@@ -107,14 +183,27 @@ public partial class App : Application
             return;
         }
 
+        long servicesMs = startupClock.ElapsedMilliseconds;
         _mainViewModel = new MainViewModel(_services);
+        long viewModelsMs = startupClock.ElapsedMilliseconds - servicesMs;
         if (page is not null)
         {
             _mainViewModel.NavigateTo(page);
         }
 
+        long windowStart = startupClock.ElapsedMilliseconds;
         var window = new MainWindow { DataContext = _mainViewModel };
         MainWindow = window;
+        long windowMs = startupClock.ElapsedMilliseconds - windowStart;
+        void LogStartup(string end) => Core.Diagnostics.Log.Info(
+            $"Startup: {runtimeMs:F0} ms runtime before OnStartup, then services {servicesMs} ms, " +
+            $"view models {viewModelsMs} ms, window {windowMs} ms; {end} at {startupClock.ElapsedMilliseconds} ms.");
+
+        // Pages only draw while the window is actually on screen (ILivePage).
+        void SyncWindowVisible() =>
+            _services.SetWindowVisible(window.IsVisible && window.WindowState != WindowState.Minimized);
+        window.IsVisibleChanged += (_, _) => SyncWindowVisible();
+        window.StateChanged += (_, _) => SyncWindowVisible();
 
         if (screenshotPath is not null)
         {
@@ -132,9 +221,11 @@ public partial class App : Application
             window.WindowState = WindowState.Minimized;
             window.ShowInTaskbar = false;
             window.Hide();
+            LogStartup("resident in the tray");
         }
         else
         {
+            window.ContentRendered += (_, _) => LogStartup("first frame");
             window.Show();
         }
     }
@@ -211,41 +302,14 @@ public partial class App : Application
             return;
         }
 
-        var thread = new Thread(() =>
-        {
-            while (!_exitRequested)
-            {
-                try
-                {
-                    if (_activationSignal.WaitOne(TimeSpan.FromSeconds(1)))
-                    {
-                        _ = Dispatcher.BeginInvoke(() => RestoreWindow(window));
-                    }
-                }
-                catch (ObjectDisposedException)
-                {
-                    return;
-                }
-            }
-        })
-        {
-            IsBackground = true,
-            Name = "Afterglow activation",
-        };
-        thread.Start();
-    }
-
-    private static string? GetArgValue(string[] args, string name)
-    {
-        for (int i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i].Equals(name, StringComparison.OrdinalIgnoreCase))
-            {
-                return args[i + 1];
-            }
-        }
-
-        return null;
+        // A registered kernel wait instead of a dedicated thread that woke every
+        // second to check for exit: nothing runs until a second launch signals.
+        _activationWait = ThreadPool.RegisterWaitForSingleObject(
+            _activationSignal,
+            (_, _) => Dispatcher.BeginInvoke(() => RestoreWindow(window)),
+            state: null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
     }
 
     private static bool TryRelaunchElevated(string[] args)
@@ -257,7 +321,9 @@ public partial class App : Application
             {
                 UseShellExecute = true,
                 Verb = "runas",
-                Arguments = string.Join(' ', args),
+                // Quoted: a plain space join splits any argument holding a space
+                // (a --data-dir or --screenshot path) when the elevated copy parses it.
+                Arguments = Core.CommandLine.Join(args),
             };
             _ = Process.Start(startInfo);
             return true;
@@ -281,10 +347,24 @@ public partial class App : Application
         window.Top = -20000;
         window.ShowInTaskbar = false;
         window.ShowActivated = false;
+
+        // --screenshot-size WxH renders at another size (design reviews of a
+        // whole long page, the minimum window size, README framing).
+        string[] cliArgs = Environment.GetCommandLineArgs();
+        if (Core.CommandLine.ValueOf(cliArgs, "--screenshot-size") is { } size &&
+            size.Split('x', 'X') is [var w, var h] &&
+            double.TryParse(w, System.Globalization.CultureInfo.InvariantCulture, out double width) &&
+            double.TryParse(h, System.Globalization.CultureInfo.InvariantCulture, out double height))
+        {
+            window.MinWidth = Math.Min(window.MinWidth, width);
+            window.MinHeight = Math.Min(window.MinHeight, height);
+            window.Width = width;
+            window.Height = height;
+        }
+
         window.Show();
 
         double delaySeconds = 4;
-        string[] cliArgs = Environment.GetCommandLineArgs();
         for (int i = 0; i < cliArgs.Length - 1; i++)
         {
             if (cliArgs[i].Equals("--screenshot-delay", StringComparison.OrdinalIgnoreCase) &&
@@ -342,6 +422,22 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // A process that never started the services has nothing to mark. WPF's
+        // Shutdown() still runs OnExit, so every early exit — the single-instance
+        // short-circuit, --register-startup, the self-elevation relaunch — used
+        // to rewrite the applied-state record to "clean". A second process
+        // launched while the real one is tuning would therefore erase the
+        // resident instance's pending record, and the next launch would show no
+        // banner for a card that is still tuned. The ACL on %ProgramData%\Afterglow
+        // blocks the unelevated case, but the installer's elevated post-install
+        // launch is not unelevated. (--demo and --screenshot DO start the
+        // services; they are excluded from the mark below via _ephemeralRun.)
+        if (_services is null)
+        {
+            base.OnExit(e);
+            return;
+        }
+
         _exitRequested = true;
         _tooltipTimer?.Stop();
         _hotkeys?.Dispose();
@@ -351,12 +447,33 @@ public partial class App : Application
         // stepper still in flight has an untested offset applied, and its cancel
         // path restores the offset the run started from. Applying writes a fresh
         // record with CleanShutdown = false, so restoring after MarkCleanShutdown
-        // would fake a crash on the next launch.
+        // would fake a crash on the next launch. And when the restore did not
+        // land (the wait ran out, or the driver refused it), the exit is not
+        // clean: the records stay unclean so the next launch's banner says the
+        // last tuning may still be applied, instead of an unvalidated offset
+        // surviving with nothing to say so (F-27).
+        // The V/F probe pins exact clocks the same way: cancel it first so its
+        // unwind overlaps the stepper's, then require both to have landed.
+        _mainViewModel?.VfCurve.RequestProbeStop();
+        bool settled = _mainViewModel?.Stability.StopForShutdown() ?? true;
+        settled &= _mainViewModel?.VfCurve.StopForShutdown() ?? true;
+
+        // Only the resident instance may vouch for a clean exit: a --demo or
+        // --screenshot run starts services but applies nothing, and a second
+        // launch that just signalled the first holds no instance mutex — either
+        // would otherwise mark the RUNNING instance's records clean and erase
+        // its crash evidence.
+        if (settled && !_ephemeralRun && _singleInstanceMutex is not null)
+        {
+            AppliedStateStore.MarkCleanShutdown();
+        }
+
         _mainViewModel?.Stability.Dispose();
-        AppliedStateStore.MarkCleanShutdown();
         _services?.Dispose();
+        _activationWait?.Unregister(null);
         _activationSignal?.Dispose();
         _singleInstanceMutex?.Dispose();
+        _hardwareOwnerMutex?.Dispose();
         base.OnExit(e);
     }
 }

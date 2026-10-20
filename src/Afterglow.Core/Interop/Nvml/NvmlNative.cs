@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Afterglow.Core.Interop.Nvml;
@@ -104,237 +105,271 @@ public unsafe struct NvmlPciInfo
 /// Signatures follow nvml.h; all functions here are part of NVIDIA's documented,
 /// ABI-stable NVML API. Newer exports may be missing on old drivers — callers must
 /// treat <see cref="EntryPointNotFoundException"/> as "not supported".
+/// Source-generated (<see cref="LibraryImportAttribute"/>): every parameter is
+/// blittable, so the generated stubs only pin and forward. The generated inner
+/// P/Invokes still name "nvml.dll", so the resolver below keeps deciding where
+/// the library is loaded from.
 /// </summary>
-internal static unsafe class NvmlNative
+internal static unsafe partial class NvmlNative
 {
-    private const string Lib = "nvml.dll";
-
-    private static int _resolverInstalled;
+    // The resolver pins this name to System32; a private copy here could drift
+    // from the resolver's and silently hand the load back to default probing.
+    private const string Lib = VendorLibraryResolver.NvmlLib;
 
     /// <summary>
-    /// Installs the DllImport resolver for this assembly exactly once. Must be called
-    /// before the first NVML P/Invoke (done by <see cref="NvmlApi.TryCreate"/>).
+    /// Installs the native-library resolver for this assembly exactly once. Must be
+    /// called before the first NVML P/Invoke (done by <see cref="NvmlApi.TryCreate"/>).
+    /// The resolver itself lives in <see cref="VendorLibraryResolver"/> because
+    /// .NET permits only one per assembly and the Intel libraries need the same
+    /// System32 pinning; NVML's own resolution order is unchanged.
     /// </summary>
-    internal static void EnsureResolverInstalled()
-    {
-        if (Interlocked.Exchange(ref _resolverInstalled, 1) != 0)
-        {
-            return;
-        }
-
-        NativeLibrary.SetDllImportResolver(typeof(NvmlNative).Assembly, static (name, _, _) =>
-        {
-            if (!name.Equals(Lib, StringComparison.OrdinalIgnoreCase))
-            {
-                return IntPtr.Zero;
-            }
-
-            // Normal location since driver R445+: System32. Fall back to the legacy
-            // NVSMI folder used by very old drivers.
-            if (NativeLibrary.TryLoad(Path.Combine(Environment.SystemDirectory, Lib), out nint handle))
-            {
-                return handle;
-            }
-
-            string legacy = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-                "NVIDIA Corporation", "NVSMI", Lib);
-            return NativeLibrary.TryLoad(legacy, out handle) ? handle : IntPtr.Zero;
-        });
-    }
+    internal static void EnsureResolverInstalled() => VendorLibraryResolver.EnsureInstalled();
 
     // --- Lifecycle -----------------------------------------------------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlInit_v2();
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlInit_v2();
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlShutdown();
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlShutdown();
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlSystemGetDriverVersion(byte* version, uint length);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlSystemGetDriverVersion(byte* version, uint length);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlSystemGetNVMLVersion(byte* version, uint length);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlSystemGetNVMLVersion(byte* version, uint length);
 
     // --- Device enumeration / identity --------------------------------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetCount_v2(out uint deviceCount);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetCount_v2(out uint deviceCount);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetHandleByIndex_v2(uint index, out nint device);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetHandleByIndex_v2(uint index, out nint device);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetName(nint device, byte* name, uint length);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetName(nint device, byte* name, uint length);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetUUID(nint device, byte* uuid, uint length);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetUUID(nint device, byte* uuid, uint length);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetVbiosVersion(nint device, byte* version, uint length);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetVbiosVersion(nint device, byte* version, uint length);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetBoardPartNumber(nint device, byte* partNumber, uint length);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetBoardPartNumber(nint device, byte* partNumber, uint length);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetArchitecture(nint device, out uint architecture);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetArchitecture(nint device, out uint architecture);
 
     // --- Temperatures --------------------------------------------------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetTemperature(nint device, NvmlTemperatureSensor sensor, out uint tempC);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetTemperature(nint device, NvmlTemperatureSensor sensor, out uint tempC);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetTemperatureThreshold(
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetTemperatureThreshold(
         nint device, NvmlTemperatureThreshold threshold, out uint tempC);
 
     // --- Clocks --------------------------------------------------------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetClockInfo(nint device, NvmlClockType type, out uint clockMHz);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetClockInfo(nint device, NvmlClockType type, out uint clockMHz);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetMaxClockInfo(nint device, NvmlClockType type, out uint clockMHz);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetMaxClockInfo(nint device, NvmlClockType type, out uint clockMHz);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetClock(
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetClock(
         nint device, NvmlClockType type, NvmlClockId clockId, out uint clockMHz);
 
     // --- Utilization / memory ------------------------------------------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetUtilizationRates(nint device, out NvmlUtilization utilization);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetUtilizationRates(nint device, out NvmlUtilization utilization);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetEncoderUtilization(
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetEncoderUtilization(
         nint device, out uint utilization, out uint samplingPeriodUs);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetDecoderUtilization(
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetDecoderUtilization(
         nint device, out uint utilization, out uint samplingPeriodUs);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetMemoryInfo(nint device, out NvmlMemory memory);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetMemoryInfo(nint device, out NvmlMemory memory);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetBAR1MemoryInfo(nint device, out NvmlBar1Memory bar1Memory);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetBAR1MemoryInfo(nint device, out NvmlBar1Memory bar1Memory);
 
     // --- Power ---------------------------------------------------------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetPowerUsage(nint device, out uint milliwatts);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetPowerUsage(nint device, out uint milliwatts);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetEnforcedPowerLimit(nint device, out uint milliwatts);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetEnforcedPowerLimit(nint device, out uint milliwatts);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetPowerManagementLimitConstraints(
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetPowerManagementLimitConstraints(
         nint device, out uint minMilliwatts, out uint maxMilliwatts);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetPowerManagementDefaultLimit(nint device, out uint milliwatts);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetPowerManagementDefaultLimit(nint device, out uint milliwatts);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceSetPowerManagementLimit(nint device, uint milliwatts);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceSetPowerManagementLimit(nint device, uint milliwatts);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetTotalEnergyConsumption(nint device, out ulong millijoules);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetTotalEnergyConsumption(nint device, out ulong millijoules);
 
     // --- Performance state / throttling --------------------------------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetPerformanceState(nint device, out uint pstate);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetPerformanceState(nint device, out uint pstate);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetCurrentClocksThrottleReasons(nint device, out ulong reasons);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetCurrentClocksThrottleReasons(nint device, out ulong reasons);
 
     // --- Fans ----------------------------------------------------------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetNumFans(nint device, out uint numFans);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetNumFans(nint device, out uint numFans);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetFanSpeed(nint device, out uint speedPercent);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetFanSpeed(nint device, out uint speedPercent);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetFanSpeed_v2(nint device, uint fan, out uint speedPercent);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetFanSpeed_v2(nint device, uint fan, out uint speedPercent);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetMinMaxFanSpeed(nint device, out uint minPercent, out uint maxPercent);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetMinMaxFanSpeed(nint device, out uint minPercent, out uint maxPercent);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetFanControlPolicy_v2(
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetFanControlPolicy_v2(
         nint device, uint fan, out NvmlFanControlPolicy policy);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceSetFanControlPolicy(
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceSetFanControlPolicy(
         nint device, uint fan, NvmlFanControlPolicy policy);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceSetFanSpeed_v2(nint device, uint fan, uint speedPercent);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceSetFanSpeed_v2(nint device, uint fan, uint speedPercent);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceSetDefaultFanSpeed_v2(nint device, uint fan);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceSetDefaultFanSpeed_v2(nint device, uint fan);
 
     // --- Locked clocks (documented overclock-adjacent controls) ---------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceSetGpuLockedClocks(nint device, uint minClockMHz, uint maxClockMHz);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceSetGpuLockedClocks(nint device, uint minClockMHz, uint maxClockMHz);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceResetGpuLockedClocks(nint device);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceResetGpuLockedClocks(nint device);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceSetMemoryLockedClocks(nint device, uint minClockMHz, uint maxClockMHz);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceSetMemoryLockedClocks(nint device, uint minClockMHz, uint maxClockMHz);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceResetMemoryLockedClocks(nint device);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceResetMemoryLockedClocks(nint device);
 
     // --- PCIe ----------------------------------------------------------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetCurrPcieLinkGeneration(nint device, out uint generation);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetCurrPcieLinkGeneration(nint device, out uint generation);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetCurrPcieLinkWidth(nint device, out uint width);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetCurrPcieLinkWidth(nint device, out uint width);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetMaxPcieLinkGeneration(nint device, out uint generation);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetMaxPcieLinkGeneration(nint device, out uint generation);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetMaxPcieLinkWidth(nint device, out uint width);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetMaxPcieLinkWidth(nint device, out uint width);
 
     /// <summary>Note: the driver samples for ~20 ms inside this call; do not call on a UI thread.</summary>
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetPcieThroughput(
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetPcieThroughput(
         nint device, NvmlPcieUtilCounter counter, out uint kilobytesPerSecond);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetPciInfo_v3(nint device, out NvmlPciInfo pciInfo);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetPciInfo_v3(nint device, out NvmlPciInfo pciInfo);
 
     // --- Clock offsets (modern overclocking API, driver R555+) -----------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetClockOffsets(nint device, ref NvmlClockOffset info);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetClockOffsets(nint device, ref NvmlClockOffset info);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceSetClockOffsets(nint device, ref NvmlClockOffset info);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceSetClockOffsets(nint device, ref NvmlClockOffset info);
 
     // --- Newer fan / temperature reads ----------------------------------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetFanSpeedRPM(nint device, ref NvmlFanSpeedInfo fanSpeed);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetFanSpeedRPM(nint device, ref NvmlFanSpeedInfo fanSpeed);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetTargetFanSpeed(nint device, uint fan, out uint targetSpeedPercent);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetTargetFanSpeed(nint device, uint fan, out uint targetSpeedPercent);
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetMarginTemperature(nint device, ref NvmlMarginTemperature margin);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetMarginTemperature(nint device, ref NvmlMarginTemperature margin);
 
     // --- Batched field values ---------------------------------------------------
 
-    [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-    internal static extern NvmlReturn nvmlDeviceGetFieldValues(
-        nint device, int valuesCount, [In, Out] NvmlFieldValue[] values);
+    [LibraryImport(Lib)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NvmlReturn nvmlDeviceGetFieldValues(
+        nint device, int valuesCount, NvmlFieldValue* values);
 }

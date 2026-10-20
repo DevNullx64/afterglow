@@ -19,11 +19,11 @@ public partial class ProfilesViewModel : ObservableObject
     public ObservableCollection<GameRule> GameRules { get; } = [];
 
     [ObservableProperty]
-    private string _newRuleExe = string.Empty;
+    public partial string NewRuleExe { get; set; } = string.Empty;
 
-    [ObservableProperty] private string _newRuleCapFps = string.Empty;
-    [ObservableProperty] private int _newRuleVsyncIndex;
-    [ObservableProperty] private bool _newRuleLowLatency;
+    [ObservableProperty] public partial string NewRuleCapFps { get; set; } = string.Empty;
+    [ObservableProperty] public partial int NewRuleVsyncIndex { get; set; }
+    [ObservableProperty] public partial bool NewRuleLowLatency { get; set; }
 
     private Core.Interop.Nvapi.DrsApi? _drs;
     private bool _drsTried;
@@ -53,31 +53,31 @@ public partial class ProfilesViewModel : ObservableObject
     };
 
     [ObservableProperty]
-    private GameRule? _selectedRule;
+    public partial GameRule? SelectedRule { get; set; }
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ApplySelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(LoadIntoTuningCommand))]
     [NotifyCanExecuteChangedFor(nameof(MarkStableCommand))]
-    private TuningProfile? _selected;
+    public partial TuningProfile? Selected { get; set; }
 
     [ObservableProperty]
-    private string _newProfileName = string.Empty;
+    public partial string NewProfileName { get; set; } = string.Empty;
 
     [ObservableProperty]
-    private string _statusText = string.Empty;
+    public partial string StatusText { get; set; } = string.Empty;
 
     private ProfileCertifier? _certifier;
 
-    [ObservableProperty] private bool _certifyRunning;
-    [ObservableProperty] private string _certifyPhaseText = string.Empty;
-    [ObservableProperty] private double _certifyProgress;
-    [ObservableProperty] private string _certifyLog = string.Empty;
+    [ObservableProperty] public partial bool CertifyRunning { get; set; }
+    [ObservableProperty] public partial string CertifyPhaseText { get; set; } = string.Empty;
+    [ObservableProperty] public partial double CertifyProgress { get; set; }
+    [ObservableProperty] public partial string CertifyLog { get; set; } = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CertifySecondsLabel))]
-    private double _certifySeconds = 90;
+    public partial double CertifySeconds { get; set; } = 90;
 
     public bool CanCertify => !_services.DemoMode && _services.IsElevated && _services.Gpus.Count > 0;
 
@@ -115,7 +115,7 @@ public partial class ProfilesViewModel : ObservableObject
         }
 
         var profile = Selected;
-        _certifier = new ProfileCertifier(gpu.Tuner, _services.Profiles, gpu.PciBusId);
+        _certifier = new ProfileCertifier(gpu.Tuner, _services.Profiles, gpu.PciBusId, gpu.PciVendorId);
         _certifier.StatusChanged += status =>
             System.Windows.Application.Current?.Dispatcher.BeginInvoke(() => OnCertifierStatus(status));
         CertifyRunning = true;
@@ -131,7 +131,20 @@ public partial class ProfilesViewModel : ObservableObject
             : status.Passed == true
                 ? "Certified across all four modes — marked stable."
                 : status.FailedMode is { } failed
-                    ? $"Failed during {failed} — the GPU was reset to driver defaults."
+                    // Say what happened, not what was intended. This line
+                    // asserted a reset for every failure — including the "apply"
+                    // path, which attempts none and leaves a partially applied
+                    // profile on the card.
+                    ? failed == "apply"
+                        ? "Failed while applying the profile — it may be partly applied. " +
+                          "Reset from the Tuning page before retrying."
+                        : status.ResetSucceeded switch
+                        {
+                            true => $"Failed during {failed} — the GPU was reset to driver defaults.",
+                            false => $"Failed during {failed}, and the reset did NOT fully succeed — " +
+                                     "this GPU may still be running the failing settings.",
+                            null => $"Failed during {failed}.",
+                        }
                     : status.Phase;
         CertifyProgress = status.Running && status.ModeDuration.TotalSeconds > 0
             ? Math.Clamp(
@@ -246,11 +259,16 @@ public partial class ProfilesViewModel : ObservableObject
             return $" Driver settings applied and {note} (persist in the driver, active whenever the game runs).";
         }
 
+        // Up to 1.2.0-beta.4 every profile/app name reached the driver
+        // truncated to its first character, so every create after the first
+        // collided on a profile literally named "A" — which read as "drivers
+        // reject creating profiles". With full names that collision is gone;
+        // if the driver still refuses, say so with its own status, not a theory.
         if (rc is Core.Interop.Nvapi.NvapiStatus.ExecutableNotFound or Core.Interop.Nvapi.NvapiStatus.ProfileNameInUse)
         {
-            return $" Driver settings NOT applied: the driver has no profile for {rule.ExecutableName} and " +
-                   "current NVIDIA drivers reject creating one via NVAPI. Add the game once in NVIDIA Control " +
-                   "Panel (Manage 3D settings → Program Settings), then re-add this rule.";
+            return $" Driver settings NOT applied: the driver did not accept a profile for {rule.ExecutableName} " +
+                   $"({rc}). As a fallback, add the game once in NVIDIA Control Panel (Manage 3D settings → " +
+                   "Program Settings), then re-add this rule.";
         }
 
         return $" Driver settings NOT applied ({rc} {note}).";
@@ -299,16 +317,18 @@ public partial class ProfilesViewModel : ObservableObject
             var (fanMode, fixedPct, curve) = _fans.CurrentConfig;
             var gpu = _services.SelectedGpu;
 
-            // Per-point curve offsets are part of the picture too (20/30/40
-            // series): capture whatever is applied right now.
+            // Per-point curve offsets are part of the picture too, on any GPU
+            // whose driver answered the live probe: capture whatever is applied
+            // right now — the whole table, explicit zeros included, whenever it
+            // holds more than the global core offset (F-02/F-07: dropping the
+            // zeros a flatten writes let re-apply resurrect what was under them).
             IReadOnlyDictionary<int, int>? vfPoints = null;
             bool capturedVfPoints = false;
             if (gpu is { Tuner.Capabilities.SupportsVfPoints: true } &&
                 gpu.Tuner.TryReadVfPoints(out var tablePoints) == Core.Interop.Nvapi.NvapiStatus.Ok)
             {
-                var nonZero = tablePoints.Where(p => p.OffsetMHz != 0)
-                    .ToDictionary(p => p.Index, p => p.OffsetMHz);
-                vfPoints = nonZero.Count > 0 ? nonZero : null;
+                vfPoints = Core.Tuning.VfPointPlanner.CaptureForProfile(
+                    tablePoints, gpu.Tuner.ReadCurrent().CoreOffsetMHz);
 
                 // The table was read, so "none" here is a fact about this card
                 // and applying the profile may remove a curve. A profile that
@@ -345,8 +365,11 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
-        var result = _applyFull(Selected);
+        // Load first: a full apply reloads the sliders from the card when it lands, so
+        // they end on what the card is running (a clamp or a refused knob shows), and a
+        // refused apply leaves the profile loaded and marked as unapplied.
         _tuning.LoadProfile(Selected);
+        var result = _applyFull(Selected);
         StatusText = $"Applied '{Selected.Name}': {result.Summary}";
     }
 

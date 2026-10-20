@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+
 namespace Afterglow.Core;
 
 /// <summary>
@@ -13,6 +16,36 @@ public static class AppPaths
 
     private static string DefaultRoot { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Afterglow");
+
+    /// <summary>True when <c>--data-dir</c> moved this process's state off the shared ProgramData tree.</summary>
+    public static bool IsRedirected => OverrideRoot is not null;
+
+    /// <summary>
+    /// Moves every path (settings, profiles, logs, flight recordings, curves,
+    /// applied state) under <paramref name="path"/> for the rest of this process —
+    /// the <c>--data-dir</c> option, so a test run or a side-by-side build never
+    /// rotates or rewrites the installed copy's state. Must run before anything
+    /// reads a path. Deliberately a command-line option only: an environment
+    /// variable would let any unelevated process point the elevated logon task
+    /// at a folder it controls (and at a startup profile it wrote).
+    /// </summary>
+    public static void UseDataRoot(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        // Normalised, so D:\t and D:\t\ are one root (and one instance name).
+        OverrideRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+    }
+
+    /// <summary>
+    /// Suffix that keeps named kernel objects (the single-instance mutex) apart
+    /// per data root: empty for the shared root, a short stable hash otherwise,
+    /// so a redirected test instance can run beside the resident one.
+    /// </summary>
+    public static string InstanceSuffix => OverrideRoot is null
+        ? string.Empty
+        : "-" + Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(OverrideRoot.ToUpperInvariant())), 0, 4);
 
     public static string ProfilesDir => Path.Combine(Root, "profiles");
 

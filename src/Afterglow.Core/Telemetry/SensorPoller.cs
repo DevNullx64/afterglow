@@ -6,7 +6,9 @@ namespace Afterglow.Core.Telemetry;
 /// Reads a full <see cref="GpuSnapshot"/> from one GPU. Remembers which metrics
 /// the GPU/driver reported as unsupported and stops asking for those, so a poll
 /// settles into the minimal set of driver calls after the first few ticks.
-/// Not thread-safe; owned by the polling loop.
+/// <see cref="Poll"/> is serialized internally: the telemetry loop owns the
+/// poller, but the V/F probe samples the same card from its own thread, and the
+/// capability cache, tick counter and field-value buffer are shared state.
 /// </summary>
 public sealed class SensorPoller : ISensorSource
 {
@@ -25,6 +27,7 @@ public sealed class SensorPoller : ISensorSource
     private Cap _perfState, _throttle, _fans, _pcieThroughput, _throttleMargin;
     private readonly NvmlFieldValue[] _powerInstantField = [new() { FieldId = NvmlFieldValue.FiPowerInstant }];
 
+    private readonly Lock _pollLock = new();
     private uint _fanCount;
     private uint _lastPcieTx;
     private uint _lastPcieRx;
@@ -33,6 +36,14 @@ public sealed class SensorPoller : ISensorSource
 
     /// <summary>Sample the (blocking, ~40 ms) PCIe throughput counters every Nth tick.</summary>
     public int PcieSampleInterval { get; set; } = 5;
+
+    /// <summary>
+    /// Also read the metrics only the CSV log and the CLI show — video clock,
+    /// encoder/decoder load and PCIe throughput (whose driver call blocks the
+    /// polling thread ~40 ms). On by default; the app turns it off while no CSV
+    /// log is running, leaving those snapshot fields null.
+    /// </summary>
+    public bool ExtendedMetrics { get; set; } = true;
 
     /// <summary>Optional NVAPI enrichment callback (hot spot, memory junction, voltage, RPM).</summary>
     public Func<NvapiEnrichment?>? EnrichmentSource { get; set; }
@@ -50,11 +61,22 @@ public sealed class SensorPoller : ISensorSource
 
     public GpuSnapshot Poll()
     {
+        lock (_pollLock)
+        {
+            return PollLocked();
+        }
+    }
+
+    private GpuSnapshot PollLocked()
+    {
         _tick++;
+        bool extended = ExtendedMetrics;
 
         uint? coreClock = ReadUint(ref _coreClock, static (NvmlDevice d, out uint v) => d.TryGetClock(NvmlClockType.Graphics, out v), _device);
         uint? memClock = ReadUint(ref _memClock, static (NvmlDevice d, out uint v) => d.TryGetClock(NvmlClockType.Mem, out v), _device);
-        uint? videoClock = ReadUint(ref _videoClock, static (NvmlDevice d, out uint v) => d.TryGetClock(NvmlClockType.Video, out v), _device);
+        uint? videoClock = extended
+            ? ReadUint(ref _videoClock, static (NvmlDevice d, out uint v) => d.TryGetClock(NvmlClockType.Video, out v), _device)
+            : null;
         uint? gpuTemp = ReadUint(ref _gpuTemp, static (NvmlDevice d, out uint v) => d.TryGetTemperature(NvmlTemperatureSensor.Gpu, out v), _device);
 
         uint? gpuUtil = null, memUtil = null;
@@ -73,8 +95,12 @@ public sealed class SensorPoller : ISensorSource
             }
         }
 
-        uint? encUtil = ReadUint(ref _encoderUtil, static (NvmlDevice d, out uint v) => d.TryGetEncoderUtilization(out v), _device);
-        uint? decUtil = ReadUint(ref _decoderUtil, static (NvmlDevice d, out uint v) => d.TryGetDecoderUtilization(out v), _device);
+        uint? encUtil = extended
+            ? ReadUint(ref _encoderUtil, static (NvmlDevice d, out uint v) => d.TryGetEncoderUtilization(out v), _device)
+            : null;
+        uint? decUtil = extended
+            ? ReadUint(ref _decoderUtil, static (NvmlDevice d, out uint v) => d.TryGetDecoderUtilization(out v), _device)
+            : null;
 
         ulong? vramUsed = null, vramTotal = null;
         if (_memory != Cap.Unsupported)
@@ -174,12 +200,18 @@ public sealed class SensorPoller : ISensorSource
         {
             fanPercents = new uint[_fanCount];
             bool any = false;
+            var lastRc = NvmlReturn.Unknown;
             for (uint f = 0; f < _fanCount; f++)
             {
-                if (_device.TryGetFanSpeed(f, out uint pct) == NvmlReturn.Success)
+                var rc = _device.TryGetFanSpeed(f, out uint pct);
+                if (rc == NvmlReturn.Success)
                 {
                     fanPercents[f] = pct;
                     any = true;
+                }
+                else
+                {
+                    lastRc = rc;
                 }
             }
 
@@ -189,12 +221,22 @@ public sealed class SensorPoller : ISensorSource
             }
             else
             {
-                _fans = Cap.Unsupported;
+                // Latch "unsupported" only on a return code that MEANS
+                // unsupported — the same rule every other sensor here follows.
+                // Latching on any failure meant one GpuIsLost tick after a TDR
+                // permanently marked this GPU fanless for the process, so the
+                // FANS tile froze on its pre-crash reading beside a live "%"
+                // while every other tile honestly read "—".
+                MarkIfUnsupported(ref _fans, lastRc);
                 fanPercents = null;
             }
         }
 
-        if (_pcieThroughput != Cap.Unsupported && _tick % Math.Max(1, PcieSampleInterval) == 0)
+        if (!extended)
+        {
+            _hasPcieSample = false;
+        }
+        else if (_pcieThroughput != Cap.Unsupported && _tick % Math.Max(1, PcieSampleInterval) == 0)
         {
             var rcTx = _device.TryGetPcieThroughput(NvmlPcieUtilCounter.TxBytes, out uint tx);
             var rcRx = _device.TryGetPcieThroughput(NvmlPcieUtilCounter.RxBytes, out uint rx);

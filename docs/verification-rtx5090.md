@@ -3,7 +3,9 @@
 Every claim below was executed on real hardware (NVIDIA GeForce RTX 5090, GeForce driver
 610.88 / NVML 13.610.88, Windows 11 Pro, 2026-08-25) during development. Transcripts are
 reproduced verbatim from the test logs; anyone with the hardware can reproduce them with
-the listed commands.
+the listed commands. Section 7 (the per-point V/F table) was measured later, on driver
+616.56, and corrects a claim sections 5 and 6 originally made — the original wording is
+kept, struck through and marked retracted, rather than deleted.
 
 ## 1. Read path — `afterglow-cli selftest` (unelevated)
 
@@ -97,11 +99,18 @@ honest ceiling for an anticheat-safe, non-graphical burn.
 
 ## 5. V/F curve probe — measured on the RTX 5090
 
-NVIDIA removed the curve query interface and rejects per-point curve writes on RTX 50
-(both verified: the private VFP-curve read returns unavailable on driver 610.88). Afterglow
-maps the curve anyway by measurement: `afterglow-cli vfcurve --probe` locks the core clock
-at each step under a compute load and records the voltage the driver selects, then restores
-the previous state. Full sweep, ~80 s, run elevated:
+> **Retracted (1.2.0-beta.3).** This section originally opened: ~~"NVIDIA removed the curve
+> query interface and rejects per-point curve writes on RTX 50 (both verified: the private
+> VFP-curve read returns unavailable on driver 610.88)."~~ The "unavailable" result came from
+> Afterglow's own struct layout (an 80 + 23 entry split that misread the 7208-byte wire
+> format), not from the driver. With the corrected layout the curve read and the per-point
+> table read **and write** work on RTX 5090 / driver 616.56 — see section 7. 610.88 itself
+> was not re-run with the fixed struct.
+
+Independently of the stored table, Afterglow maps the curve the GPU actually runs by
+measurement: `afterglow-cli vfcurve --probe` locks the core clock at each step under a
+compute load and records the voltage the driver selects, then restores the previous state.
+Full sweep, ~80 s, run elevated:
 
 ```text
 step  1/18: lock   600 MHz ->   592 MHz @  800.0 mV     (voltage floor)
@@ -130,5 +139,35 @@ that voltage.
 - `nvmlDeviceSetMemoryLockedClocks` is intentionally never used: on Blackwell it acts as a
   global performance cap (documented upstream in LACT issue #1128). Memory tuning is
   offset-only.
-- Per-point V/F curve writes (`SetClockBoostTable`) are rejected by the driver on RTX 50;
-  undervolting uses the supported clock-lock + offset method.
+- ~~Per-point V/F curve writes (`SetClockBoostTable`) are rejected by the driver on RTX 50;
+  undervolting uses the supported clock-lock + offset method.~~ **Retracted** — not a
+  Blackwell gap: a struct-layout bug on Afterglow's side. Per-point writes work on driver
+  616.56 (section 7); clock-lock + offset remains available as the second undervolt path.
+
+## 7. Per-point V/F table — RTX 5090, driver 616.56
+
+Measured 2026-08-30 with the corrected (nvapioc) layouts. The sequence, elevated: read the
+table → `set --core-offset 60` → read → `vfpoints --set "68=-50"` → read →
+`set --core-offset 100` → read → `vfpoints --clear` → read. The transcript was not kept
+verbatim; these are the recorded results:
+
+- The table exposes **127 live core points**; reading and writing both work.
+- **The global core offset shares the table.** With a global offset applied and no table
+  writes, every live slot reads that offset (+100 MHz read as raw 100000, i.e. plain kHz —
+  the delta scale Afterglow uses, `TableDeltaPerMHz = 1000`).
+- **A per-point write lands:** slot 68 was set to −50 —
+- **— and a core-offset write rewrites every live slot uniformly:** slot 68 became +100 the
+  moment `set --core-offset 100` was applied, erasing the per-point edit.
+- **Clearing the point offsets left the global offset in place:** after `vfpoints --clear`
+  the table still read +100 on every point. (An earlier README/in-app note said a clear also
+  returns the core offset to 0; that was inferred, never measured, and is wrong here.)
+
+Read-only re-check, driver 617.42, 2026-10-12 (`--data-dir` to a scratch folder; reproduce
+with `afterglow-cli get` and `afterglow-cli vfpoints`): `get` reports a +260 MHz core
+offset, and `vfpoints` lists 127 points (450 mV → 435 MHz … 1240 mV → 3412 MHz stored),
+every one at +260 MHz — the shared-table behaviour again, on a newer driver.
+
+These are single-card, single-driver observations. Afterglow's apply path does not rely on
+the clear-and-core-offset behaviour (it writes the core offset again after any clear it
+performs), and every per-point write and every clear is now read back and reported against
+what was asked rather than assumed (fixes for review findings F-06/F-10/F-57/F-58).

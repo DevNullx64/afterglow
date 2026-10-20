@@ -16,26 +16,9 @@ public sealed class FanControlServiceTests : IDisposable
 {
     private const string Uuid = "GPU-ffff1111-2222-3333-4444-555566667777";
 
-    private readonly string _root;
+    private readonly Fakes.StoreScope _store = new();
 
-    public FanControlServiceTests()
-    {
-        _root = Path.Combine(Path.GetTempPath(), $"afterglow-test-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(_root);
-        AppPaths.OverrideRoot = _root;
-    }
-
-    public void Dispose()
-    {
-        AppPaths.OverrideRoot = null;
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (IOException)
-        {
-        }
-    }
+    public void Dispose() => _store.Dispose();
 
     /// <summary>Records what the service asked the driver to do, and answers as told.</summary>
     private sealed class FakeDriver
@@ -144,4 +127,25 @@ public sealed class FanControlServiceTests : IDisposable
             Assert.Equal([85u], driver.SetCalls);  // no command after the release
             Assert.Equal(1, driver.RestoreCalls);
         }
+
+    [Fact]
+    public void Dispose_releases_the_fans_and_a_late_tick_cannot_take_them_back()
+    {
+        var driver = new FakeDriver();
+        var service = Service(driver);
+        service.SetCurve(new FanCurveConfig
+        {
+            Points = [new(40, 40), new(80, 100)],
+            ZeroRpmBelowC = 0,
+            HysteresisC = 0,
+            MinSpinDutyPct = 30,
+        });
+        service.OnSnapshot(Snapshot(70));
+
+        service.Dispose();
+        service.OnSnapshot(Snapshot(85));   // the telemetry thread's last tick, after the release
+
+        Assert.Equal([85u], driver.SetCalls);
+        Assert.Equal(1, driver.RestoreCalls);
+    }
 }
